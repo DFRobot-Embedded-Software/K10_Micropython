@@ -126,6 +126,9 @@ netconn_apimsg(tcpip_callback_fn fn, struct api_msg *apimsg)
 
 #if LWIP_NETCONN_SEM_PER_THREAD
   apimsg->op_completed_sem = LWIP_NETCONN_THREAD_SEM_GET();
+  if (!sys_sem_valid(apimsg->op_completed_sem)) {
+    return ERR_MEM;
+  }
 #endif /* LWIP_NETCONN_SEM_PER_THREAD */
 
   err = tcpip_send_msg_wait_sem(fn, apimsg, LWIP_API_MSG_SEM(apimsg));
@@ -1275,9 +1278,9 @@ netconn_gethostbyname(const char *name, ip_addr_t *addr)
 #endif
 {
   API_VAR_DECLARE(struct dns_api_msg, msg);
-#if !LWIP_MPU_COMPATIBLE
+#if !LWIP_MPU_COMPATIBLE && !LWIP_NETCONN_SEM_PER_THREAD
   sys_sem_t sem;
-#endif /* LWIP_MPU_COMPATIBLE */
+#endif /* !LWIP_MPU_COMPATIBLE && !LWIP_NETCONN_SEM_PER_THREAD */
   err_t err;
   err_t cberr;
 
@@ -1305,7 +1308,9 @@ netconn_gethostbyname(const char *name, ip_addr_t *addr)
   API_VAR_REF(msg).name[DNS_MAX_NAME_LENGTH - 1] = 0;
 #else /* LWIP_MPU_COMPATIBLE */
   msg.err = &err;
+#if !LWIP_NETCONN_SEM_PER_THREAD
   msg.sem = &sem;
+#endif
   API_VAR_REF(msg).addr = API_VAR_REF(addr);
   API_VAR_REF(msg).name = name;
 #endif /* LWIP_MPU_COMPATIBLE */
@@ -1314,6 +1319,9 @@ netconn_gethostbyname(const char *name, ip_addr_t *addr)
 #endif /* LWIP_IPV4 && LWIP_IPV6 */
 #if LWIP_NETCONN_SEM_PER_THREAD
   API_VAR_REF(msg).sem = LWIP_NETCONN_THREAD_SEM_GET();
+  if (!sys_sem_valid(API_VAR_REF(msg).sem)) {
+    return ERR_MEM;
+  }
 #else /* LWIP_NETCONN_SEM_PER_THREAD*/
   err = sys_sem_new(API_EXPR_REF(API_VAR_REF(msg).sem), 0);
   if (err != ERR_OK) {

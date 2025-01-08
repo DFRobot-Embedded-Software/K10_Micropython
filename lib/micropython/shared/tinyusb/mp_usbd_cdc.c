@@ -95,6 +95,9 @@ void tud_cdc_rx_cb(uint8_t itf) {
 }
 
 mp_uint_t mp_usbd_cdc_tx_strn(const char *str, mp_uint_t len) {
+    if (!tusb_inited()) {
+        return 0;
+    }
     size_t i = 0;
     while (i < len) {
         uint32_t n = len - i;
@@ -102,9 +105,9 @@ mp_uint_t mp_usbd_cdc_tx_strn(const char *str, mp_uint_t len) {
             n = CFG_TUD_CDC_EP_BUFSIZE;
         }
         if (tud_cdc_connected()) {
-            int timeout = 0;
             // If CDC port is connected but the buffer is full, wait for up to USC_CDC_TIMEOUT ms.
-            while (n > tud_cdc_write_available() && timeout++ < MICROPY_HW_USB_CDC_TX_TIMEOUT) {
+            mp_uint_t t0 = mp_hal_ticks_ms();
+            while (n > tud_cdc_write_available() && (mp_uint_t)(mp_hal_ticks_ms() - t0) < MICROPY_HW_USB_CDC_TX_TIMEOUT) {
                 mp_event_wait_ms(1);
 
                 // Explicitly run the USB stack as the scheduler may be locked (eg we
@@ -135,9 +138,12 @@ void tud_sof_cb(uint32_t frame_count) {
 
 #endif
 
-#if MICROPY_HW_ENABLE_USBDEV && (MICROPY_HW_USB_CDC_1200BPS_TOUCH || MICROPY_HW_USB_CDC)
+#if MICROPY_HW_ENABLE_USBDEV && ( \
+    MICROPY_HW_USB_CDC_1200BPS_TOUCH || \
+    MICROPY_HW_USB_CDC || \
+    MICROPY_HW_USB_CDC_DTR_RTS_BOOTLOADER)
 
-#if MICROPY_HW_USB_CDC_1200BPS_TOUCH
+#if MICROPY_HW_USB_CDC_1200BPS_TOUCH || MICROPY_HW_USB_CDC_DTR_RTS_BOOTLOADER
 static mp_sched_node_t mp_bootloader_sched_node;
 
 static void usbd_cdc_run_bootloader_task(mp_sched_node_t *node) {
@@ -146,13 +152,14 @@ static void usbd_cdc_run_bootloader_task(mp_sched_node_t *node) {
 }
 #endif
 
-void
-#if MICROPY_HW_USB_EXTERNAL_TINYUSB
-mp_usbd_line_state_cb
-#else
-tud_cdc_line_state_cb
+#if MICROPY_HW_USB_CDC_DTR_RTS_BOOTLOADER
+static struct {
+    bool dtr : 1;
+    bool rts : 1;
+} prev_line_state = {0};
 #endif
-    (uint8_t itf, bool dtr, bool rts) {
+
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts) {
     #if MICROPY_HW_USB_CDC && !MICROPY_EXCLUDE_SHARED_TINYUSB_USBD_CDC
     if (dtr) {
         // A host application has started to open the cdc serial port.
@@ -161,6 +168,15 @@ tud_cdc_line_state_cb
         cdc_connected_flush_delay = (tud_speed_get() == TUSB_SPEED_HIGH) ? 128 : 16;
         tud_sof_cb_enable(true);
     }
+    #endif
+    #if MICROPY_HW_USB_CDC_DTR_RTS_BOOTLOADER
+    if (dtr && !rts) {
+        if (prev_line_state.rts && !prev_line_state.dtr) {
+            mp_sched_schedule_node(&mp_bootloader_sched_node, usbd_cdc_run_bootloader_task);
+        }
+    }
+    prev_line_state.rts = rts;
+    prev_line_state.dtr = dtr;
     #endif
     #if MICROPY_HW_USB_CDC_1200BPS_TOUCH
     if (dtr == false && rts == false) {

@@ -35,10 +35,19 @@
 #include "esp_intr_alloc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#if CONFIG_BT_CONTROLLER_ENABLED
 #include "esp_bt.h"
-#if !SOC_ESP_NIMBLE_CONTROLLER
+#endif
+#if !SOC_ESP_NIMBLE_CONTROLLER && CONFIG_BT_CONTROLLER_ENABLED
 #include "esp_nimble_hci.h"
 #endif
+#if !CONFIG_BT_CONTROLLER_ENABLED
+#include "nimble/transport.h"
+#endif
+#if (BT_HCI_LOG_INCLUDED == TRUE)
+#include "hci_log/bt_hci_log.h"
+#endif // (BT_HCI_LOG_INCLUDED == TRUE)
+#include "bt_common.h"
 
 #define NIMBLE_PORT_LOG_TAG          "BLE_INIT"
 
@@ -80,16 +89,31 @@ nimble_port_stop_cb(struct ble_npl_event *ev)
  */
 esp_err_t esp_nimble_init(void)
 {
-#if !SOC_ESP_NIMBLE_CONTROLLER
+#if CONFIG_BT_CONTROLLER_DISABLED
+    esp_err_t ret;
+#endif
+#if !SOC_ESP_NIMBLE_CONTROLLER || !CONFIG_BT_CONTROLLER_ENABLED
     /* Initialize the function pointers for OS porting */
     npl_freertos_funcs_init();
 
     npl_freertos_mempool_init();
 
+#if CONFIG_BT_CONTROLLER_ENABLED
     if(esp_nimble_hci_init() != ESP_OK) {
         ESP_LOGE(NIMBLE_PORT_LOG_TAG, "hci inits failed\n");
         return ESP_FAIL;
     }
+#else
+    ret = ble_buf_alloc();
+    if (ret != ESP_OK) {
+        ble_buf_free();
+        return ESP_FAIL;
+    }
+    ble_transport_init();
+#if MYNEWT_VAL(BLE_QUEUE_CONG_CHECK)
+    ble_adv_list_init();
+#endif
+#endif
 
     /* Initialize default event queue */
     ble_npl_eventq_init(&g_eventq_dflt);
@@ -100,6 +124,7 @@ esp_err_t esp_nimble_init(void)
 #endif
     /* Initialize the host */
     ble_transport_hs_init();
+    ble_transport_ll_init();
 
     return ESP_OK;
 }
@@ -111,16 +136,24 @@ esp_err_t esp_nimble_init(void)
  */
 esp_err_t esp_nimble_deinit(void)
 {
-#if !SOC_ESP_NIMBLE_CONTROLLER
+#if !SOC_ESP_NIMBLE_CONTROLLER || !CONFIG_BT_CONTROLLER_ENABLED
+#if CONFIG_BT_CONTROLLER_ENABLED
     if(esp_nimble_hci_deinit() != ESP_OK) {
         ESP_LOGE(NIMBLE_PORT_LOG_TAG, "hci deinit failed\n");
         return ESP_FAIL;
     }
+#else
+#if MYNEWT_VAL(BLE_QUEUE_CONG_CHECK)
+    ble_adv_list_deinit();
+#endif
+    ble_transport_deinit();
+    ble_buf_free();
+#endif
 
     ble_npl_eventq_deinit(&g_eventq_dflt);
 #endif
     ble_hs_deinit();
-#if !SOC_ESP_NIMBLE_CONTROLLER
+#if !SOC_ESP_NIMBLE_CONTROLLER || !CONFIG_BT_CONTROLLER_ENABLED
     npl_freertos_funcs_deinit();
 #endif
     return ESP_OK;
@@ -136,7 +169,7 @@ nimble_port_init(void)
 {
     esp_err_t ret;
 
-#if CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_TARGET_ESP32 && CONFIG_BT_CONTROLLER_ENABLED
     esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
 #endif
 #if CONFIG_BT_CONTROLLER_ENABLED
@@ -150,6 +183,11 @@ nimble_port_init(void)
 
     ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
     if (ret != ESP_OK) {
+        // Deinit to free any memory the controller is using.
+        if(esp_bt_controller_deinit() != ESP_OK) {
+            ESP_LOGE(NIMBLE_PORT_LOG_TAG, "controller deinit failed\n");
+        }
+
         ESP_LOGE(NIMBLE_PORT_LOG_TAG, "controller enable failed\n");
         return ret;
     }
@@ -157,9 +195,25 @@ nimble_port_init(void)
 
     ret = esp_nimble_init();
     if (ret != ESP_OK) {
-        ESP_LOGE(NIMBLE_PORT_LOG_TAG, "nimble host init failed\n");
+
+#if CONFIG_BT_CONTROLLER_ENABLED
+	// Disable and deinit controller to free memory
+        if(esp_bt_controller_disable() != ESP_OK) {
+            ESP_LOGE(NIMBLE_PORT_LOG_TAG, "controller disable failed\n");
+        }
+
+	if(esp_bt_controller_deinit() != ESP_OK) {
+            ESP_LOGE(NIMBLE_PORT_LOG_TAG, "controller deinit failed\n");
+        }
+#endif
+
+	ESP_LOGE(NIMBLE_PORT_LOG_TAG, "nimble host init failed\n");
         return ret;
     }
+
+#if MYNEWT_VAL(BT_HCI_LOG_INCLUDED)
+    bt_hci_log_init();
+#endif // (BT_HCI_LOG_INCLUDED == TRUE)
 
     return ESP_OK;
 }
@@ -194,6 +248,10 @@ nimble_port_deinit(void)
         return ret;
     }
 #endif
+
+#if (BT_HCI_LOG_INCLUDED == TRUE)
+    bt_hci_log_deinit();
+#endif // (BT_HCI_LOG_INCLUDED == TRUE)
 
     return ESP_OK;
 }

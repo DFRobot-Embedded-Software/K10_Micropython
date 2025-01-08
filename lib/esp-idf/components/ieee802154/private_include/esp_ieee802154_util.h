@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,12 +8,16 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "sdkconfig.h"
+#include "soc/soc_caps.h"
 #include "esp_ieee802154_dev.h"
 #include "hal/ieee802154_ll.h"
 #include "esp_timer.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define IEEE802154_TAG "ieee802154"
 
 #if SOC_PM_MODEM_RETENTION_BY_REGDMA && CONFIG_FREERTOS_USE_TICKLESS_IDLE
 #define IEEE802154_RF_ENABLE() ieee802154_rf_enable()
@@ -172,7 +176,7 @@ extern ieee802154_probe_info_t g_ieee802154_probe;
  */
 void ieee802154_assert_print(void);
 #define IEEE802154_ASSERT(a) do { \
-                                    if(!(a)) { \
+                                    if(unlikely(!(a))) { \
                                         ieee802154_assert_print(); \
                                         assert(a); \
                                     } \
@@ -185,6 +189,7 @@ void ieee802154_assert_print(void);
 typedef struct ieee802154_txrx_statistic{
     struct {
         uint64_t nums;
+        uint64_t deferred_nums;
         uint64_t done_nums;
         struct {
             uint64_t rx_ack_coex_break_nums;        // IEEE802154_RX_ACK_ABORT_COEX_CNT_REG
@@ -218,6 +223,10 @@ typedef struct ieee802154_txrx_statistic{
             ieee802154_txrx_statistic(a);\
             } while(0)
 
+#define IEEE802154_TX_DEFERRED_NUMS_UPDATE() do { \
+            ieee802154_tx_deferred_nums_update();\
+            } while(0)
+
 #define IEEE802154_TX_NUMS_UPDATE() do { \
             ieee802154_tx_nums_update();\
             } while(0)
@@ -230,10 +239,12 @@ void ieee802154_txrx_statistic_clear(void);
 void ieee802154_txrx_statistic_print(void);
 void ieee802154_txrx_statistic(ieee802154_ll_events events);
 void ieee802154_tx_nums_update(void);
+void ieee802154_tx_deferred_nums_update(void);
 void ieee802154_tx_break_coex_nums_update(void);
 #else
 #define IEEE802154_TXRX_STATISTIC(a)
 #define IEEE802154_TX_NUMS_UPDATE()
+#define IEEE802154_TX_DEFERRED_NUMS_UPDATE()
 #define IEEE802154_TXRX_STATISTIC_CLEAR()
 #define IEEE802154_TX_BREAK_COEX_NUMS_UPDATE()
 #endif // CONFIG_IEEE802154_TXRX_STATISTIC
@@ -273,9 +284,9 @@ void ieee802154_set_txrx_pti(ieee802154_txrx_scene_t txrx_scene);
 #endif // !CONFIG_IEEE802154_TEST && CONFIG_ESP_COEX_SW_COEXIST_ENABLE || CONFIG_EXTERNAL_COEX_ENABLE
 
 /**
- * @brief  Convert the frequence to the index of channel.
+ * @brief  Convert the frequency to the index of channel.
  *
- * @param[in]  freq  The frequence where the radio is processing.
+ * @param[in]  freq  The frequency where the radio is processing.
  *
  * @return
  *          The channel index.
@@ -284,12 +295,12 @@ void ieee802154_set_txrx_pti(ieee802154_txrx_scene_t txrx_scene);
 uint8_t ieee802154_freq_to_channel(uint8_t freq);
 
 /**
- * @brief  Convert the index of channel to the frequence.
+ * @brief  Convert the index of channel to the frequency.
  *
  * @param[in]  channel  The index of channel where the radio is processing.
  *
  * @return
- *          The frequence.
+ *          The frequency.
  *
  */
 uint8_t ieee802154_channel_to_freq(uint8_t channel);

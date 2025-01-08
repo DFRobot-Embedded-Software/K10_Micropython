@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -43,6 +43,7 @@ extern "C" {
 #define REGDMA_BLE_MAC_LINK(_pri)           ((0x15 << 8) | _pri)
 #define REGDMA_MODEM_BT_BB_LINK(_pri)       ((0x16 << 8) | _pri)
 #define REGDMA_MODEM_IEEE802154_LINK(_pri)  ((0x17 << 8) | _pri)
+#define REGDMA_MODEM_GDMA_LINK(_pri)        ((0x18 << 8) | _pri)
 #define REGDMA_MODEM_FE_LINK(_pri)          ((0xFF << 8) | _pri)
 
 typedef enum {
@@ -65,6 +66,18 @@ typedef enum regdma_link_mode {
     REGDMA_LINK_MODE_WAIT            /*!< Link used to wait for register value to meet condition*/
 } regdma_link_mode_t;
 
+#define REGDMA_LINK_PRI_SYS_CLK                 REGDMA_LINK_PRI_0
+#define REGDMA_LINK_PRI_MODEM_CLK               REGDMA_LINK_PRI_1
+#define REGDMA_LINK_PRI_CRITICAL_TEE_APM        REGDMA_LINK_PRI_2
+#define REGDMA_LINK_PRI_WIFI_MAC_BB             REGDMA_LINK_PRI_3
+#define REGDMA_LINK_PRI_NON_CRITICAL_TEE_APM    REGDMA_LINK_PRI_4
+#define REGDMA_LINK_PRI_BT_MAC_BB               REGDMA_LINK_PRI_5
+#define REGDMA_LINK_PRI_SYS_PERIPH_HIGH         REGDMA_LINK_PRI_5 // INT_MTX & HP_SYSTEM & Console UART
+#define REGDMA_LINK_PRI_SYS_PERIPH_LOW          REGDMA_LINK_PRI_6 // TG0 & IO MUX & SPI MEM & Systimer
+#define REGDMA_LINK_PRI_GENERAL_PERIPH          REGDMA_LINK_PRI_7 // Low retenion priority for general peripherals
+#define REGDMA_LINK_PRI_IEEE802154              REGDMA_LINK_PRI_GENERAL_PERIPH
+#define REGDMA_LINK_PRI_GDMA                    REGDMA_LINK_PRI_GENERAL_PERIPH
+#define REGDMA_LINK_PRI_UART                    REGDMA_LINK_PRI_GENERAL_PERIPH
 
 typedef struct regdma_link_head {
     volatile uint32_t length: 10, /* total count of registers that need to be backup or restore, unit: 1 word = 4 bytes */
@@ -577,11 +590,11 @@ void regdma_link_stats(void *link, int entry);
 void regdma_link_set_write_wait_content(void *link, uint32_t value, uint32_t mask);
 
 /**
- * @brief Print all node information of the REGDMA linked list indicated by the entry argument
+ * @brief Dump all node information of the REGDMA linked list indicated by the entry argument
  * @param link  The REGDMA linkded list head pointer
  * @param entry For nodes that support branching, use the branch specified by entry argument recursively
  */
-void regdma_link_show_memories(void *link, int entry);
+void regdma_link_dump(FILE *out, void *link, int entry);
 
 /**
  * @brief Update REGDMA linked list node next pointers
@@ -624,7 +637,7 @@ void *regdma_find_module_link_tail(void *link, void *tail, int entry, uint32_t m
 
 /**
  * @brief Find the tail node of the previous module of the specified module in the REGDMA linked list
- * indicated by the entry argument starting from the link argment to the end of the tail argument
+ * indicated by the entry argument starting from the link argument to the end of the tail argument
  * @param  link   The REGDMA linkded list head pointer
  * @param  tail   The REGDMA linkded list tail pointer
  * @param  entry  For nodes that support branching, use the branch specified by entry argument recursively
@@ -635,7 +648,7 @@ void *regdma_find_prev_module_link_tail(void *link, void *tail, int entry, uint3
 
 /**
  * @brief Find the head node of the next module of the specified module in the REGDMA linked list
- * indicated by the entry argument starting from the link argment to the end of the tail argument
+ * indicated by the entry argument starting from the link argument to the end of the tail argument
  * @param  link   The REGDMA linkded list head pointer
  * @param  tail   The REGDMA linkded list tail pointer
  * @param  entry  For nodes that support branching, use the branch specified by entry argument recursively

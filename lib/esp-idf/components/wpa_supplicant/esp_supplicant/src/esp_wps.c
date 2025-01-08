@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2019-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -33,8 +33,8 @@
 
 const char *wps_model_number = CONFIG_IDF_TARGET;
 
-void *s_wps_api_lock = NULL;  /* Used in WPS public API only, never be freed */
-void *s_wps_api_sem = NULL;   /* Sync semaphore used between WPS publi API caller task and WPS task */
+void *s_wps_api_lock = NULL;  /* Used in WPS/WPS-REG public API only, never be freed */
+void *s_wps_api_sem = NULL;   /* Sync semaphore used between WPS/WPS-REG public API caller task and WPS task, never be freed */
 bool s_wps_enabled = false;
 #ifdef USE_WPS_TASK
 struct wps_rx_param {
@@ -45,11 +45,7 @@ struct wps_rx_param {
 };
 static STAILQ_HEAD(,wps_rx_param) s_wps_rxq;
 
-typedef struct {
-    void *arg;
-    int ret; /* return value */
-} wps_ioctl_param_t;
-
+struct wps_sm_funcs *s_wps_sm_cb = NULL;
 static void *s_wps_task_hdl = NULL;
 static void *s_wps_queue = NULL;
 static void *s_wps_data_lock = NULL;
@@ -849,6 +845,13 @@ int wps_finish(void)
     return ret;
 }
 
+static void wps_sm_notify_deauth(void)
+{
+    if (gWpsSm && gWpsSm->wps->state != WPS_FINISHED) {
+        wps_stop_process(WPS_FAIL_REASON_RECV_DEAUTH);
+    }
+}
+
 /* Add current ap to discard ap list */
 void wps_add_discard_ap(u8 *bssid)
 {
@@ -1396,6 +1399,11 @@ int wps_init_cfg_pin(struct wps_config *cfg)
     return 0;
 }
 
+struct wps_sm_funcs* wps_get_wps_sm_cb(void)
+{
+    return s_wps_sm_cb;
+}
+
 static int wifi_station_wps_init(const esp_wps_config_t *config)
 {
     struct wps_funcs *wps_cb;
@@ -1477,6 +1485,12 @@ static int wifi_station_wps_init(const esp_wps_config_t *config)
     wps_cb->wps_start_pending = wps_start_pending;
     esp_wifi_set_wps_cb_internal(wps_cb);
 
+    s_wps_sm_cb = os_malloc(sizeof(struct wps_sm_funcs));
+    if (s_wps_sm_cb == NULL) {
+        goto _err;
+    }
+    s_wps_sm_cb->wps_sm_notify_deauth = wps_sm_notify_deauth;
+
     return ESP_OK;
 
 _err:
@@ -1550,6 +1564,11 @@ wifi_station_wps_deinit(void)
         wps_deinit(sm->wps);
         sm->wps = NULL;
     }
+    if (s_wps_sm_cb) {
+        os_free(s_wps_sm_cb);
+        s_wps_sm_cb = NULL;
+    }
+
     os_free(gWpsSm);
     gWpsSm = NULL;
 

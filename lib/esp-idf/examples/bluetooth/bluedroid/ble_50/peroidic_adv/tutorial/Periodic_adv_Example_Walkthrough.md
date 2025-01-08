@@ -66,8 +66,8 @@ void app_main(void)
         ESP_LOGE(LOG_TAG, "%s enable controller failed: %s", __func__, esp_err_to_name(ret));
         return;
     }
-    esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
-    ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
+
+    ret = esp_bluedroid_init();
     if (ret) {
         ESP_LOGE(LOG_TAG, "%s init bluetooth failed: %s", __func__, esp_err_to_name(ret));
         return;
@@ -152,8 +152,7 @@ There are four Bluetooth modes supported:
 After the initialization of the BT controller, the Bluedroid stack, which includes the common definitions and APIs for both BT Classic and BLE, is initialized and enabled by using:
 
 ```c
-esp_bluedroid_config_t bluedroid_cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
-ret = esp_bluedroid_init_with_cfg(&bluedroid_cfg);
+ret = esp_bluedroid_init();
 ret = esp_bluedroid_enable();
 ```
 The Bluetooth stack is up and running at this point in the program flow, however the functionality of the application has not been defined yet. The functionality is defined by reacting to events such as what happens when another device tries to read or write parameters and establish a connection. The two main managers of events are the GAP and GATT event handlers. The application needs to register a callback function for each event handler in order to let the application know which functions are going to handle the GAP and GATT events:
@@ -178,7 +177,7 @@ typedef struct {
     uint32_t interval_min;              /*!< ext adv minimum interval */
     uint32_t interval_max;              /*!< ext adv maximum interval */
     esp_ble_adv_channel_t channel_map;  /*!< ext adv channel map */
-    esp_ble_addr_type_t own_addr_type;  /*!< ext adv own addresss type */
+    esp_ble_addr_type_t own_addr_type;  /*!< ext adv own address type */
     esp_ble_addr_type_t peer_addr_type; /*!< ext adv peer address type */
     esp_bd_addr_t peer_addr;            /*!< ext adv peer address */
     esp_ble_adv_filter_t filter_policy; /*!< ext adv filter policy */
@@ -247,7 +246,7 @@ static uint8_t periodic_adv_raw_data[] = {
 
 ```c
 static esp_ble_gap_ext_adv_t ext_adv[1] = {
-    // instance, duration, peroid
+    // instance, duration, period
     [0] = {EXT_ADV_HANDLE, 0, 0},
 };
 ```
@@ -258,46 +257,44 @@ Once the Extended advertising data have been set, the GAP event `ESP_GAP_BLE_EXT
 
 ```c
 
-static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param){
-     switch (event) {
-     case ESP_GAP_BLE_EXT_ADV_SET_RAND_ADDR_COMPLETE_EVT:
-         xSemaphoreGive(test_sem);
-         ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_SET_RAND_ADDR_COMPLETE_EVT, status %d", param->ext _adv_set_rand_addr.status);
-         break;
-     case ESP_GAP_BLE_EXT_ADV_SET_PARAMS_COMPLETE_EVT:
-         xSemaphoreGive(test_sem);
-         ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_SET_PARAMS_COMPLETE_EVT, status %d", param->ext_adv_set_params.status);
-         break;
-     case ESP_GAP_BLE_EXT_ADV_DATA_SET_COMPLETE_EVT:
-         xSemaphoreGive(test_sem);
-         ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_DATA_SET_COMPLETE_EVT, status %d", param->ext_adv_data_set.status);
-         break;
-     case ESP_GAP_BLE_EXT_SCAN_RSP_DATA_SET_COMPLETE_EVT:
-         xSemaphoreGive(test_sem);
-         ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_SCAN_RSP_DATA_SET_COMPLETE_EVT, status %d", param->scan_rsp_set.status);
-         break;
-     case ESP_GAP_BLE_EXT_ADV_START_COMPLETE_EVT:
-         xSemaphoreGive(test_sem);
-         ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_START_COMPLETE_EVT, status %d", param->ext_adv_start.status);
-         break;
-     case ESP_GAP_BLE_EXT_ADV_STOP_COMPLETE_EVT:
-         xSemaphoreGive(test_sem);
-         ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_STOP_COMPLETE_EVT, status %d", param->ext_adv_stop.status);
-         break;
-     case ESP_GAP_BLE_PERIODIC_ADV_SET_PARAMS_COMPLETE_EVT:
-         xSemaphoreGive(test_sem);
-        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_PERIODIC_ADV_SET_PARAMS_COMPLETE_EVT, status %d", param->p
-eroid_adv_set_params.status);
+static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
+{
+    switch (event) {
+    case ESP_GAP_BLE_EXT_ADV_SET_RAND_ADDR_COMPLETE_EVT:
+        xSemaphoreGive(test_sem);
+        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_SET_RAND_ADDR_COMPLETE_EVT, status %d, instance %d", param->ext_adv_set_rand_addr.status, param->ext_adv_set_rand_addr.instance);
+        break;
+    case ESP_GAP_BLE_EXT_ADV_SET_PARAMS_COMPLETE_EVT:
+        xSemaphoreGive(test_sem);
+        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_SET_PARAMS_COMPLETE_EVT, status %d, instance %d", param->ext_adv_set_params.status, param->ext_adv_set_params.instance);
+        break;
+    case ESP_GAP_BLE_EXT_ADV_DATA_SET_COMPLETE_EVT:
+        xSemaphoreGive(test_sem);
+        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_DATA_SET_COMPLETE_EVT, status %d, instance %d", param->ext_adv_data_set.status, param->ext_adv_data_set.instance);
+        break;
+    case ESP_GAP_BLE_EXT_SCAN_RSP_DATA_SET_COMPLETE_EVT:
+        xSemaphoreGive(test_sem);
+        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_SCAN_RSP_DATA_SET_COMPLETE_EVT, status %d, instance %d", param->scan_rsp_set.status, param->scan_rsp_set.instance);
+        break;
+    case ESP_GAP_BLE_EXT_ADV_START_COMPLETE_EVT:
+        xSemaphoreGive(test_sem);
+        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_START_COMPLETE_EVT, status %d, instance numble %d", param->ext_adv_start.status, param->ext_adv_start.instance_num);
+        break;
+    case ESP_GAP_BLE_EXT_ADV_STOP_COMPLETE_EVT:
+        xSemaphoreGive(test_sem);
+        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_EXT_ADV_STOP_COMPLETE_EVT, status %d, instance numble %d", param->ext_adv_stop.status, param->ext_adv_stop.instance_num);
+        break;
+    case ESP_GAP_BLE_PERIODIC_ADV_SET_PARAMS_COMPLETE_EVT:
+        xSemaphoreGive(test_sem);
+        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_PERIODIC_ADV_SET_PARAMS_COMPLETE_EVT, status %d, instance %d", param->peroid_adv_set_params.status, param->peroid_adv_set_params.instance);
         break;
     case ESP_GAP_BLE_PERIODIC_ADV_DATA_SET_COMPLETE_EVT:
         xSemaphoreGive(test_sem);
-        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_PERIODIC_ADV_DATA_SET_COMPLETE_EVT, status %d", param->per
-iod_adv_data_set.status);
+        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_PERIODIC_ADV_DATA_SET_COMPLETE_EVT, status %d, instance %d", param->period_adv_data_set.status, param->period_adv_data_set.instance);
         break;
     case ESP_GAP_BLE_PERIODIC_ADV_START_COMPLETE_EVT:
         xSemaphoreGive(test_sem);
-        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_PERIODIC_ADV_START_COMPLETE_EVT, status %d", param->period
-_adv_start.status);
+        ESP_LOGI(LOG_TAG, "ESP_GAP_BLE_PERIODIC_ADV_START_COMPLETE_EVT, status %d, instance %d", param->period_adv_start.status, param->period_adv_start.instance);
         break;
     default:
         break;

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -63,20 +63,31 @@ static int esp_dpp_post_evt(uint32_t evt_id, uint32_t data)
     if (evt_id != SIG_DPP_DEL_TASK) {
         DPP_API_UNLOCK();
     }
+    wpa_printf(MSG_DEBUG,"DPP: Sent event %d to DPP task", evt_id);
 
     return ret;
 end:
     if (evt) {
         os_free(evt);
     }
+    wpa_printf(MSG_ERROR,"DPP: Failed to send event %d to DPP task", evt_id);
     return ret;
+}
+
+static uint8_t esp_dpp_deinit_auth(void)
+{
+    esp_err_t ret = esp_dpp_post_evt(SIG_DPP_DEINIT_AUTH, 0);
+    if (ESP_OK != ret) {
+            wpa_printf(MSG_ERROR, "Failed to post DPP auth deinit to DPP Task(status=%d)", ret);
+            return ret;
+   }
+   return ESP_OK;
 }
 
 static void esp_dpp_call_cb(esp_supp_dpp_event_t evt, void *data)
 {
-    if ( evt == ESP_SUPP_DPP_FAIL && s_dpp_ctx.dpp_auth) {
-        dpp_auth_deinit(s_dpp_ctx.dpp_auth);
-        s_dpp_ctx.dpp_auth = NULL;
+    if (s_dpp_ctx.dpp_auth) {
+        esp_dpp_deinit_auth();
     }
     s_dpp_ctx.dpp_event_cb(evt, data);
 }
@@ -88,19 +99,15 @@ static void esp_dpp_auth_conf_wait_timeout(void *eloop_ctx, void *timeout_ctx)
 
     wpa_printf(MSG_DEBUG,
            "DPP: Terminate authentication exchange due to Auth Confirm timeout");
-    if (s_dpp_ctx.dpp_auth) {
-        dpp_auth_deinit(s_dpp_ctx.dpp_auth);
-        s_dpp_ctx.dpp_auth = NULL;
-    }
     esp_dpp_call_cb(ESP_SUPP_DPP_FAIL, (void *)ESP_ERR_DPP_AUTH_TIMEOUT);
 }
 
-void esp_send_action_frame(uint8_t *dest_mac, const uint8_t *buf, uint32_t len,
-                           uint8_t channel, uint32_t wait_time_ms)
+static esp_err_t esp_dpp_send_action_frame(uint8_t *dest_mac, const uint8_t *buf, uint32_t len,
+                                           uint8_t channel, uint32_t wait_time_ms)
 {
     wifi_action_tx_req_t *req = os_zalloc(sizeof(*req) + len);;
     if (!req) {
-        return;
+        return ESP_FAIL;;
     }
 
     req->ifx = WIFI_IF_STA;
@@ -115,13 +122,15 @@ void esp_send_action_frame(uint8_t *dest_mac, const uint8_t *buf, uint32_t len,
 
     if (ESP_OK != esp_wifi_action_tx_req(WIFI_OFFCHAN_TX_REQ, channel,
                                          wait_time_ms, req)) {
-        wpa_printf(MSG_ERROR, "DPP: Failed to perfrm offchannel operation");
+        wpa_printf(MSG_ERROR, "DPP: Failed to perform offchannel operation");
         esp_dpp_call_cb(ESP_SUPP_DPP_FAIL, (void *)ESP_ERR_DPP_TX_FAILURE);
         os_free(req);
-        return;
+        return ESP_FAIL;;
     }
 
     os_free(req);
+
+    return ESP_OK;
 }
 
 static void esp_dpp_rx_auth_req(struct action_rx_param *rx_param, uint8_t *dpp_data)
@@ -168,7 +177,8 @@ static void esp_dpp_rx_auth_req(struct action_rx_param *rx_param, uint8_t *dpp_d
                                          own_bi, rx_param->channel,
                                          (const u8 *)&rx_param->action_frm->u.public_action.v, dpp_data, len);
     os_memcpy(s_dpp_ctx.dpp_auth->peer_mac_addr, rx_param->sa, ETH_ALEN);
-    esp_send_action_frame(rx_param->sa, wpabuf_head(s_dpp_ctx.dpp_auth->resp_msg),
+    wpa_printf(MSG_DEBUG, "DPP: Sending authentication response.");
+    esp_dpp_send_action_frame(rx_param->sa, wpabuf_head(s_dpp_ctx.dpp_auth->resp_msg),
                           wpabuf_len(s_dpp_ctx.dpp_auth->resp_msg),
                           rx_param->channel, OFFCHAN_TX_WAIT_TIME);
     eloop_cancel_timeout(esp_dpp_auth_conf_wait_timeout, NULL,NULL);
@@ -195,7 +205,7 @@ static void gas_query_req_tx(struct dpp_authentication *auth)
     wpa_printf(MSG_DEBUG, "DPP: GAS request to " MACSTR " (chan %u)",
                MAC2STR(auth->peer_mac_addr), auth->curr_chan);
 
-    esp_send_action_frame(auth->peer_mac_addr, wpabuf_head(buf), wpabuf_len(buf),
+    esp_dpp_send_action_frame(auth->peer_mac_addr, wpabuf_head(buf), wpabuf_len(buf),
                           auth->curr_chan, OFFCHAN_TX_WAIT_TIME);
 }
 
@@ -227,8 +237,9 @@ static int esp_dpp_handle_config_obj(struct dpp_authentication *auth,
         wpa_printf(MSG_INFO, DPP_EVENT_CONNECTOR "%s",
                    conf->connector);
     }
-    s_dpp_listen_in_progress = true;
-    esp_wifi_action_tx_req(WIFI_OFFCHAN_TX_CANCEL, 0, 0, NULL);
+    if (s_dpp_listen_in_progress) {
+        esp_supp_dpp_stop_listen();
+    }
     esp_dpp_call_cb(ESP_SUPP_DPP_CFG_RECVD, wifi_cfg);
 
     return 0;
@@ -438,6 +449,15 @@ static void esp_dpp_task(void *pvParameters )
             }
             break;
 
+            case SIG_DPP_DEINIT_AUTH: {
+                if (s_dpp_ctx.dpp_auth) {
+                    dpp_auth_deinit(s_dpp_ctx.dpp_auth);
+                    s_dpp_ctx.dpp_auth = NULL;
+                }
+                wpa_printf(MSG_DEBUG, "DPP auth deinintialized");
+            }
+            break;
+
             default:
                 break;
             }
@@ -508,6 +528,9 @@ static void offchan_event_handler(void *arg, esp_event_base_t event_base,
 
         if (evt->status) {
             eloop_cancel_timeout(esp_dpp_auth_conf_wait_timeout, NULL, NULL);
+            if (s_dpp_listen_in_progress) {
+                esp_supp_dpp_stop_listen();
+            }
             esp_dpp_call_cb(ESP_SUPP_DPP_FAIL, (void *)ESP_ERR_DPP_TX_FAILURE);
         }
 
@@ -682,7 +705,7 @@ esp_err_t esp_supp_dpp_init(esp_supp_dpp_event_cb_t cb)
         return ESP_FAIL;
     }
     if (s_dpp_ctx.dpp_global) {
-        wpa_printf(MSG_ERROR, "DPP: failed to init as init already done.");
+        wpa_printf(MSG_ERROR, "DPP: failed to init as init already done. Please deinit first and retry.");
         return ESP_FAIL;
     }
 

@@ -545,6 +545,7 @@ udp_sendto_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *dst_ip,
   if (IP_IS_V4MAPPEDV6(dst_ip)) {
     ip_addr_t dest_ipv4;
     unmap_ipv4_mapped_ipv6(ip_2_ip4(&dest_ipv4), ip_2_ip6(dst_ip));
+    IP_SET_TYPE_VAL(dest_ipv4, IPADDR_TYPE_V4);
 #if LWIP_CHECKSUM_ON_COPY
     return udp_sendto_chksum(pcb, p, &dest_ipv4, dst_port, have_chksum, chksum);
 #else

@@ -90,8 +90,13 @@ void vPortEnterCritical(void)
 
 void vPortExitCritical(void)
 {
+
+    /* Critical section nesting coung must never be negative */
+    configASSERT( port_uxCriticalNestingIDF > 0 );
+
     if (port_uxCriticalNestingIDF > 0) {
         port_uxCriticalNestingIDF--;
+
         if (port_uxCriticalNestingIDF == 0) {
             // Restore the saved interrupt threshold
             vPortClearInterruptMask((int)port_uxCriticalOldInterruptStateIDF);
@@ -166,6 +171,12 @@ void vPortClearInterruptMask(UBaseType_t mask)
 BaseType_t xPortCheckIfInISR(void)
 {
     return uxInterruptNesting;
+}
+
+void vPortAssertIfInISR(void)
+{
+    /* Assert if the interrupt nesting count is > 0 */
+    configASSERT(xPortCheckIfInISR() == 0);
 }
 
 // ------------------ Critical Sections --------------------
@@ -384,7 +395,7 @@ FORCE_INLINE_ATTR UBaseType_t uxInitialiseStackTLS(UBaseType_t uxStackPointer, u
 #if CONFIG_FREERTOS_TASK_FUNCTION_WRAPPER
 static void vPortTaskWrapper(TaskFunction_t pxCode, void *pvParameters)
 {
-    __asm__ volatile(".cfi_undefined ra");  // tell to debugger that it's outermost (inital) frame
+    __asm__ volatile(".cfi_undefined ra");  // tell to debugger that it's outermost (initial) frame
     extern void __attribute__((noreturn)) panic_abort(const char *details);
     static char DRAM_ATTR msg[80] = "FreeRTOS: FreeRTOS Task \"\0";
     pxCode(pvParameters);
@@ -451,7 +462,7 @@ StackType_t *pxPortInitialiseStack(StackType_t *pxTopOfStack, TaskFunction_t pxC
     HIGH ADDRESS
     |---------------------------| <- pxTopOfStack on entry
     | TLS Variables             |
-    | ------------------------- | <- Start of useable stack
+    | ------------------------- | <- Start of usable stack
     | Starting stack frame      |
     | ------------------------- | <- pxTopOfStack on return (which is the tasks current SP)
     |             |             |

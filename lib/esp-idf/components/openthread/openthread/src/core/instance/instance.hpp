@@ -88,15 +88,19 @@
 #include "net/dhcp6_server.hpp"
 #include "net/dns_client.hpp"
 #include "net/dns_dso.hpp"
+#include "net/dnssd.hpp"
 #include "net/dnssd_server.hpp"
 #include "net/ip6.hpp"
 #include "net/ip6_filter.hpp"
+#include "net/mdns.hpp"
 #include "net/nat64_translator.hpp"
 #include "net/nd_agent.hpp"
 #include "net/netif.hpp"
 #include "net/sntp_client.hpp"
+#include "net/srp_advertising_proxy.hpp"
 #include "net/srp_client.hpp"
 #include "net/srp_server.hpp"
+#include "radio/ble_secure.hpp"
 #include "thread/address_resolver.hpp"
 #include "thread/announce_begin_server.hpp"
 #include "thread/announce_sender.hpp"
@@ -199,6 +203,26 @@ public:
      *
      */
     static Instance *InitMultiple(uint8_t aIdx);
+
+    /**
+     * Returns a reference to the OpenThread instance.
+     *
+     * @param[in] aIdx The index of the OpenThread instance to get.
+     *
+     * @returns A reference to the OpenThread instance.
+     *
+     */
+    static Instance &Get(uint8_t aIdx);
+
+    /**
+     * Returns the index of the OpenThread instance.
+     *
+     * @param[in] aInstance The reference of the OpenThread instance to get index.
+     *
+     * @returns The index of the OpenThread instance.
+     *
+     */
+    static uint8_t GetIdx(Instance *aInstance);
 #endif
 
 #else // OPENTHREAD_CONFIG_MULTIPLE_INSTANCE_ENABLE
@@ -457,6 +481,12 @@ private:
     SettingsDriver mSettingsDriver;
     MessagePool    mMessagePool;
 
+#if OPENTHREAD_CONFIG_PLATFORM_DNSSD_ENABLE || OPENTHREAD_CONFIG_MULTICAST_DNS_ENABLE
+    // DNS-SD (mDNS) platform is initialized early to
+    // allow other modules to use it.
+    Dnssd mDnssd;
+#endif
+
     Ip6::Ip6    mIp6;
     ThreadNetif mThreadNetif;
     Tmf::Agent  mTmfAgent;
@@ -497,8 +527,16 @@ private:
     Dns::Dso mDnsDso;
 #endif
 
+#if OPENTHREAD_CONFIG_MULTICAST_DNS_ENABLE
+    Dns::Multicast::Core mMdnsCore;
+#endif
+
 #if OPENTHREAD_CONFIG_SNTP_CLIENT_ENABLE
     Sntp::Client mSntpClient;
+#endif
+
+#if OPENTHREAD_FTD && OPENTHREAD_CONFIG_BACKBONE_ROUTER_ENABLE
+    BackboneRouter::Local mBackboneRouterLocal;
 #endif
 
     MeshCoP::ActiveDatasetManager  mActiveDataset;
@@ -547,7 +585,7 @@ private:
     MeshCoP::Commissioner mCommissioner;
 #endif
 
-#if OPENTHREAD_CONFIG_DTLS_ENABLE
+#if OPENTHREAD_CONFIG_SECURE_TRANSPORT_ENABLE
     Tmf::SecureAgent mTmfSecureAgent;
 #endif
 
@@ -569,7 +607,6 @@ private:
 #endif
 
 #if OPENTHREAD_FTD && OPENTHREAD_CONFIG_BACKBONE_ROUTER_ENABLE
-    BackboneRouter::Local   mBackboneRouterLocal;
     BackboneRouter::Manager mBackboneRouterManager;
 #endif
 
@@ -583,6 +620,9 @@ private:
 
 #if OPENTHREAD_CONFIG_SRP_SERVER_ENABLE
     Srp::Server mSrpServer;
+#if OPENTHREAD_CONFIG_SRP_SERVER_ADVERTISING_PROXY_ENABLE
+    Srp::AdvertisingProxy mSrpAdvertisingProxy;
+#endif
 #endif
 
 #if OPENTHREAD_FTD
@@ -618,6 +658,10 @@ private:
     Coap::CoapSecure mApplicationCoapSecure;
 #endif
 
+#if OPENTHREAD_CONFIG_BLE_TCAT_ENABLE
+    Ble::BleSecure mApplicationBleSecure;
+#endif
+
 #if OPENTHREAD_CONFIG_PING_SENDER_ENABLE
     Utils::PingSender mPingSender;
 #endif
@@ -626,7 +670,8 @@ private:
     Utils::ChannelMonitor mChannelMonitor;
 #endif
 
-#if OPENTHREAD_CONFIG_CHANNEL_MANAGER_ENABLE && OPENTHREAD_FTD
+#if OPENTHREAD_CONFIG_CHANNEL_MANAGER_ENABLE && \
+    (OPENTHREAD_FTD || OPENTHREAD_CONFIG_CHANNEL_MANAGER_CSL_CHANNEL_SELECT_ENABLE)
     Utils::ChannelManager mChannelManager;
 #endif
 
@@ -830,7 +875,7 @@ template <> inline Ip6::Mpl &Instance::Get(void) { return mIp6.mMpl; }
 
 template <> inline Tmf::Agent &Instance::Get(void) { return mTmfAgent; }
 
-#if OPENTHREAD_CONFIG_DTLS_ENABLE
+#if OPENTHREAD_CONFIG_SECURE_TRANSPORT_ENABLE
 template <> inline Tmf::SecureAgent &Instance::Get(void) { return mTmfSecureAgent; }
 #endif
 
@@ -856,6 +901,10 @@ template <> inline EnergyScanClient &Instance::Get(void) { return mCommissioner.
 template <> inline PanIdQueryClient &Instance::Get(void) { return mCommissioner.GetPanIdQueryClient(); }
 #endif
 
+#if OPENTHREAD_CONFIG_PLATFORM_DNSSD_ENABLE || OPENTHREAD_CONFIG_MULTICAST_DNS_ENABLE
+template <> inline Dnssd &Instance::Get(void) { return mDnssd; }
+#endif
+
 #if OPENTHREAD_CONFIG_JOINER_ENABLE
 template <> inline MeshCoP::Joiner &Instance::Get(void) { return mJoiner; }
 #endif
@@ -878,6 +927,10 @@ template <> inline Dns::ServiceDiscovery::Server &Instance::Get(void) { return m
 
 #if OPENTHREAD_CONFIG_DNS_DSO_ENABLE
 template <> inline Dns::Dso &Instance::Get(void) { return mDnsDso; }
+#endif
+
+#if OPENTHREAD_CONFIG_MULTICAST_DNS_ENABLE
+template <> inline Dns::Multicast::Core &Instance::Get(void) { return mMdnsCore; }
 #endif
 
 template <> inline NetworkDiagnostic::Server &Instance::Get(void) { return mNetworkDiagnosticServer; }
@@ -923,7 +976,8 @@ template <> inline Utils::PingSender &Instance::Get(void) { return mPingSender; 
 template <> inline Utils::ChannelMonitor &Instance::Get(void) { return mChannelMonitor; }
 #endif
 
-#if OPENTHREAD_CONFIG_CHANNEL_MANAGER_ENABLE && OPENTHREAD_FTD
+#if OPENTHREAD_CONFIG_CHANNEL_MANAGER_ENABLE && \
+    (OPENTHREAD_FTD || OPENTHREAD_CONFIG_CHANNEL_MANAGER_CSL_CHANNEL_SELECT_ENABLE)
 template <> inline Utils::ChannelManager &Instance::Get(void) { return mChannelManager; }
 #endif
 
@@ -1007,7 +1061,7 @@ template <> inline Utils::Otns &Instance::Get(void) { return mOtns; }
 template <> inline BorderRouter::RoutingManager &Instance::Get(void) { return mRoutingManager; }
 
 template <> inline BorderRouter::InfraIf &Instance::Get(void) { return mRoutingManager.mInfraIf; }
-#endif // OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
+#endif
 
 #if OPENTHREAD_CONFIG_NAT64_TRANSLATOR_ENABLE
 template <> inline Nat64::Translator &Instance::Get(void) { return mNat64Translator; }
@@ -1015,6 +1069,13 @@ template <> inline Nat64::Translator &Instance::Get(void) { return mNat64Transla
 
 #if OPENTHREAD_CONFIG_SRP_SERVER_ENABLE
 template <> inline Srp::Server &Instance::Get(void) { return mSrpServer; }
+#if OPENTHREAD_CONFIG_SRP_SERVER_ADVERTISING_PROXY_ENABLE
+template <> inline Srp::AdvertisingProxy &Instance::Get(void) { return mSrpAdvertisingProxy; }
+#endif
+#endif // OPENTHREAD_CONFIG_SRP_SERVER_ENABLE
+
+#if OPENTHREAD_CONFIG_BLE_TCAT_ENABLE
+template <> inline Ble::BleSecure &Instance::Get(void) { return mApplicationBleSecure; }
 #endif
 
 #endif // OPENTHREAD_MTD || OPENTHREAD_FTD

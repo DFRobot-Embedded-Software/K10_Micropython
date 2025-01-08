@@ -1,3 +1,7 @@
+# MIT license; Copyright (c) 2021 Amir Gonnen
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
+
 import lvgl as lv  # NOQA
 import micropython  # NOQA
 import sys
@@ -6,8 +10,8 @@ import time
 from machine import Timer  # NOQA
 
 
-TASK_HANDLER_STARTED = 0x00
-TASK_HANDLER_FINISHED = 0x01
+TASK_HANDLER_STARTED = 0x01
+TASK_HANDLER_FINISHED = 0x02
 
 _default_timer_id = 0
 
@@ -20,7 +24,7 @@ class _DefaultUserData(object):
 
 
 def _default_exception_hook(e):
-    sys.print_exception(e)
+    sys.print_exception(e)  # NOQA
     TaskHandler._current_instance.deinit()  # NOQA
 
 
@@ -101,12 +105,12 @@ class TaskHandler(object):
         try:
             self._scheduled -= 1
 
-            if lv._nesting.value == 0:
+            if lv._nesting.value == 0:  # NOQA
                 self._running = True
 
                 run_update = True
                 for cb, evt, data in self._callbacks:
-                    if not evt ^ TASK_HANDLER_STARTED:
+                    if not evt & TASK_HANDLER_STARTED:
                         continue
 
                     try:
@@ -120,20 +124,20 @@ class TaskHandler(object):
                         ):
                             self.exception_hook(err)
                         else:
-                            sys.print_exception(err)
+                            sys.print_exception(err)  # NOQA
 
-                stop_time = time.ticks_ms()
+                stop_time = time.ticks_ms()  # NOQA
 
-                ticks_diff = time.ticks_diff(stop_time, self._start_time)
+                ticks_diff = time.ticks_diff(stop_time, self._start_time)  # NOQA
                 self._start_time = stop_time
                 lv.tick_inc(ticks_diff)
 
                 if run_update:
                     lv.task_handler()
-                    start_time = time.ticks_ms()
+                    start_time = time.ticks_ms()  # NOQA
 
                     for cb, evt, data in self._callbacks:
-                        if not evt ^ TASK_HANDLER_FINISHED:
+                        if not evt & TASK_HANDLER_FINISHED:
                             continue
 
                         try:
@@ -145,10 +149,10 @@ class TaskHandler(object):
                             ):
                                 self.exception_hook(err)
                             else:
-                                sys.print_exception(err)
+                                sys.print_exception(err)  # NOQA
 
-                    stop_time = time.ticks_ms()
-                    ticks_diff = time.ticks_diff(stop_time, start_time)
+                    stop_time = time.ticks_ms()  # NOQA
+                    ticks_diff = time.ticks_diff(stop_time, start_time)  # NOQA
                     lv.tick_inc(ticks_diff)
 
                 self._running = False

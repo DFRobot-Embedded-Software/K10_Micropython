@@ -191,7 +191,7 @@ ifneq ($(FROZEN_MANIFEST),)
 # If we're using the default submodule path for micropython-lib, then make
 # sure it's included in "make submodules".
 ifeq ($(MPY_LIB_DIR),$(MPY_LIB_SUBMODULE_DIR))
-GIT_SUBMODULES += lib/micropython-lib
+#GIT_SUBMODULES += lib/micropython-lib
 endif
 
 # Set compile options needed to enable frozen code.
@@ -251,8 +251,8 @@ endif
 submodules:
 	$(ECHO) "Updating submodules: $(GIT_SUBMODULES)"
 ifneq ($(GIT_SUBMODULES),)
-	$(Q)git submodule sync $(addprefix $(TOP)/,$(GIT_SUBMODULES))
-	$(Q)git submodule update --init $(addprefix $(TOP)/,$(GIT_SUBMODULES))
+	$(Q)cd $(TOP) && git submodule sync $(GIT_SUBMODULES)
+	$(Q)cd $(TOP) && git submodule update --init --depth=1 $(GIT_SUBMODULES)
 endif
 .PHONY: submodules
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -120,6 +120,11 @@ static void usb_serial_jtag_tx_char(int fd, int c)
     do {
         if (usb_serial_jtag_ll_txfifo_writable()) {
             usb_serial_jtag_ll_write_txfifo(&cc, 1);
+            if (c == '\n') {
+                //Make sure line doesn't linger in fifo
+                usb_serial_jtag_ll_txfifo_flush();
+            }
+            //update time of last successful tx to now.
             s_ctx.last_tx_ts = esp_timer_get_time();
             break;
         }
@@ -154,10 +159,6 @@ static ssize_t usb_serial_jtag_write(int fd, const void * data, size_t size)
             }
         }
         s_ctx.tx_func(fd, c);
-        if (c == '\n') {
-            //Make sure line doesn't linger in fifo
-            usb_serial_jtag_ll_txfifo_flush();
-        }
     }
     _lock_release_recursive(&s_ctx.write_lock);
     return size;
@@ -270,6 +271,10 @@ static int usb_serial_jtag_fsync(int fd)
     while ((esp_timer_get_time() - s_ctx.last_tx_ts) < TX_FLUSH_TIMEOUT_US) {
         if (usb_serial_jtag_ll_txfifo_writable()) {
             s_ctx.last_tx_ts = esp_timer_get_time();
+            //The last transfer may have been a 64-byte one. Flush again in order to
+            //send a 0-byte packet to indicate the end of the USB transfer, otherwise
+            //those 64 bytes will get stuck in the hosts buffer.
+            usb_serial_jtag_ll_txfifo_flush();
             break;
         }
     }

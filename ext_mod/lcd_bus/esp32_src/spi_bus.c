@@ -1,3 +1,4 @@
+// Copyright (c) 2024 - 2025 Kevin G. Schlosser
 
 // local includes
 #include "lcd_types.h"
@@ -62,7 +63,27 @@ typedef struct _machine_hw_spi_obj_t {
 mp_lcd_err_t spi_del(mp_obj_t obj);
 mp_lcd_err_t spi_init(mp_obj_t obj, uint16_t width, uint16_t height, uint8_t bpp, uint32_t buffer_size, bool rgb565_byte_swap, uint8_t cmd_bits, uint8_t param_bits);
 mp_lcd_err_t spi_get_lane_count(mp_obj_t obj, uint8_t *lane_count);
-void spi_deinit_callback(machine_hw_spi_device_obj_t *device);
+void spi_deinit_callback(mp_machine_hw_spi_device_obj_t *device);
+
+
+static uint8_t spi_bus_count = 0;
+static mp_lcd_spi_bus_obj_t **spi_bus_objs;
+
+
+void mp_lcd_spi_bus_deinit_all(void)
+{
+    // we need to copy the existing array to a new one so the order doesn't
+    // get all mucked up when objects get removed.
+    mp_lcd_spi_bus_obj_t *objs[spi_bus_count];
+
+    for (uint8_t i=0;i<spi_bus_count;i++) {
+        objs[i] = spi_bus_objs[i];
+    }
+
+    for (uint8_t i=0;i<spi_bus_count;i++) {
+        spi_del(MP_OBJ_FROM_PTR(objs[i]));
+    }
+}
 
 
 static mp_obj_t mp_lcd_spi_bus_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args)
@@ -109,7 +130,7 @@ static mp_obj_t mp_lcd_spi_bus_make_new(const mp_obj_type_t *type, size_t n_args
     mp_lcd_spi_bus_obj_t *self = m_new_obj(mp_lcd_spi_bus_obj_t);
     self->base.type = &mp_lcd_spi_bus_type;
 
-    machine_hw_spi_bus_obj_t *spi_bus = MP_OBJ_TO_PTR(args[ARG_spi_bus].u_obj);
+    mp_machine_hw_spi_bus_obj_t *spi_bus = MP_OBJ_TO_PTR(args[ARG_spi_bus].u_obj);
 
     self->callback = mp_const_none;
 
@@ -139,29 +160,28 @@ static mp_obj_t mp_lcd_spi_bus_make_new(const mp_obj_type_t *type, size_t n_args
     self->panel_io_handle.get_lane_count = &spi_get_lane_count;
 
     self->spi_device.active = true;
-    self->spi_device.base.type = &machine_hw_spi_device_type;
+    self->spi_device.base.type = &mp_machine_hw_spi_device_type;
     self->spi_device.spi_bus = spi_bus;
     self->spi_device.deinit = &spi_deinit_callback;
     self->spi_device.user_data = self;
 
-#if CONFIG_LCD_ENABLE_DEBUG_LOG
-    printf("host=%d\n", self->host);
-    printf("cs_gpio_num=%d\n", self->panel_io_config.cs_gpio_num);
-    printf("dc_gpio_num=%d\n", self->panel_io_config.dc_gpio_num);
-    printf("spi_mode=%d\n", self->panel_io_config.spi_mode);
-    printf("pclk_hz=%i\n", self->panel_io_config.pclk_hz);
-    printf("dc_low_on_data=%d\n", self->panel_io_config.flags.dc_low_on_data);
-    printf("lsb_first=%d\n", self->panel_io_config.flags.lsb_first);
-    printf("cs_high_active=%d\n", self->panel_io_config.flags.cs_high_active);
-    printf("dual=%d\n", self->panel_io_config.flags.sio_mode);
-    printf("quad=%d\n", self->panel_io_config.flags.quad_mode);
-    printf("octal=%d\n", self->panel_io_config.flags.octal_mode);
-#endif
+    LCD_DEBUG_PRINT("host=%d\n", self->host)
+    LCD_DEBUG_PRINT("cs_gpio_num=%d\n", self->panel_io_config.cs_gpio_num)
+    LCD_DEBUG_PRINT("dc_gpio_num=%d\n", self->panel_io_config.dc_gpio_num)
+    LCD_DEBUG_PRINT("spi_mode=%d\n", self->panel_io_config.spi_mode)
+    LCD_DEBUG_PRINT("pclk_hz=%i\n", self->panel_io_config.pclk_hz)
+    LCD_DEBUG_PRINT("dc_low_on_data=%d\n", self->panel_io_config.flags.dc_low_on_data)
+    LCD_DEBUG_PRINT("lsb_first=%d\n", self->panel_io_config.flags.lsb_first)
+    LCD_DEBUG_PRINT("cs_high_active=%d\n", self->panel_io_config.flags.cs_high_active)
+    LCD_DEBUG_PRINT("dual=%d\n", self->panel_io_config.flags.sio_mode)
+    LCD_DEBUG_PRINT("quad=%d\n", self->panel_io_config.flags.quad_mode)
+    LCD_DEBUG_PRINT("octal=%d\n", self->panel_io_config.flags.octal_mode)
 
     return MP_OBJ_FROM_PTR(self);
 }
 
-void spi_deinit_callback(machine_hw_spi_device_obj_t *device)
+
+void spi_deinit_callback(mp_machine_hw_spi_device_obj_t *device)
 {
     mp_lcd_spi_bus_obj_t *self = (mp_lcd_spi_bus_obj_t *)device->user_data;
     spi_del(MP_OBJ_FROM_PTR(self));
@@ -170,38 +190,76 @@ void spi_deinit_callback(machine_hw_spi_device_obj_t *device)
 
 mp_lcd_err_t spi_del(mp_obj_t obj)
 {
+    LCD_DEBUG_PRINT("spi_del(self)\n")
+
     mp_lcd_spi_bus_obj_t *self = (mp_lcd_spi_bus_obj_t *)obj;
-#if CONFIG_LCD_ENABLE_DEBUG_LOG
-    printf("spi_del(self)\n");
-#endif
 
-    if (!self->spi_device.active) return ESP_OK;
+    if (self->panel_io_handle.panel_io != NULL) {
+        mp_lcd_err_t ret = esp_lcd_panel_io_del(self->panel_io_handle.panel_io);
+        if (ret != ESP_OK) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("%d(esp_lcd_panel_io_del)"), ret);
+            return ret;
+        }
 
-    mp_lcd_err_t ret = esp_lcd_panel_io_del(self->panel_io_handle.panel_io);
-    if (ret != ESP_OK) {
-        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("%d(esp_lcd_panel_io_del)"), ret);
+        self->panel_io_handle.panel_io = NULL;
+
+        if (self->view1 != NULL) {
+            heap_caps_free(self->view1->items);
+            self->view1->items = NULL;
+            self->view1->len = 0;
+            self->view1 = NULL;
+            LCD_DEBUG_PRINT("spi_free_framebuffer(self, buf=1)\n")
+        }
+
+        if (self->view2 != NULL) {
+            heap_caps_free(self->view2->items);
+            self->view2->items = NULL;
+            self->view2->len = 0;
+            self->view2 = NULL;
+            LCD_DEBUG_PRINT("spi_free_framebuffer(self, buf=1)\n")
+        }
+
+        uint8_t i= 0;
+        for (;i<spi_bus_count;i++) {
+            if (spi_bus_objs[i] == self) {
+                spi_bus_objs[i] = NULL;
+                break;
+            }
+        }
+
+        for (uint8_t j=i + 1;j<spi_bus_count;j++) {
+            spi_bus_objs[j - i + 1] = spi_bus_objs[j];
+        }
+
+        spi_bus_count--;
+        spi_bus_objs = m_realloc(spi_bus_objs, spi_bus_count * sizeof(mp_lcd_spi_bus_obj_t *));
+
+
+        mp_machine_hw_spi_bus_remove_device(&self->spi_device);
+        self->spi_device.active = false;
+
+        if (self->spi_device.spi_bus->device_count == 0) {
+            self->spi_device.spi_bus->deinit(self->spi_device.spi_bus);
+        }
+
+        return ret;
+    } else {
+        return LCD_FAIL;
     }
-
-    machine_hw_spi_bus_remove_device(&self->spi_device);
-    self->spi_device.active = false;
-
-    if (self->spi_device.spi_bus->device_count == 0) {
-        self->spi_device.spi_bus->deinit(self->spi_device.spi_bus);
-    }
-
-    return ret;
 }
 
 
 mp_lcd_err_t spi_init(mp_obj_t obj, uint16_t width, uint16_t height, uint8_t bpp, uint32_t buffer_size, bool rgb565_byte_swap, uint8_t cmd_bits, uint8_t param_bits)
 {
-#if CONFIG_LCD_ENABLE_DEBUG_LOG
-    printf("spi_init(self, width=%i, height=%i, bpp=%i, buffer_size=%lu, rgb565_byte_swap=%i, cmd_bits=%i, param_bits=%i)\n", width, height, bpp, buffer_size, (uint8_t)rgb565_byte_swap, cmd_bits, param_bits);
-#endif
+    LCD_DEBUG_PRINT("spi_init(self, width=%i, height=%i, bpp=%i, buffer_size=%lu, rgb565_byte_swap=%i, cmd_bits=%i, param_bits=%i)\n", width, height, bpp, buffer_size, (uint8_t)rgb565_byte_swap, cmd_bits, param_bits)
     mp_lcd_spi_bus_obj_t *self = (mp_lcd_spi_bus_obj_t *)obj;
 
+    if (self->panel_io_handle.panel_io != NULL) {
+        return LCD_FAIL;
+    }
+
     if (self->spi_device.spi_bus->state == MP_SPI_STATE_STOPPED) {
-        machine_hw_spi_bus_initilize(self->spi_device.spi_bus);
+        mp_machine_hw_spi_bus_initilize(self->spi_device.spi_bus);
     }
 
     if (bpp == 16) {
@@ -214,19 +272,24 @@ mp_lcd_err_t spi_init(mp_obj_t obj, uint16_t width, uint16_t height, uint8_t bpp
     self->panel_io_config.lcd_cmd_bits = (int)cmd_bits;
     self->panel_io_config.lcd_param_bits = (int)param_bits;
 
-#if CONFIG_LCD_ENABLE_DEBUG_LOG
-    printf("lcd_cmd_bits=%d\n", self->panel_io_config.lcd_cmd_bits);
-    printf("lcd_param_bits=%d\n", self->panel_io_config.lcd_param_bits);
-    printf("rgb565_byte_swap=%i\n",  (uint8_t)self->rgb565_byte_swap);
-    printf("trans_queue_depth=%i\n", (uint8_t)self->panel_io_config.trans_queue_depth);
-#endif
+    LCD_DEBUG_PRINT("lcd_cmd_bits=%d\n", self->panel_io_config.lcd_cmd_bits)
+    LCD_DEBUG_PRINT("lcd_param_bits=%d\n", self->panel_io_config.lcd_param_bits)
+    LCD_DEBUG_PRINT("rgb565_byte_swap=%i\n",  (uint8_t)self->rgb565_byte_swap)
+    LCD_DEBUG_PRINT("trans_queue_depth=%i\n", (uint8_t)self->panel_io_config.trans_queue_depth)
 
     mp_lcd_err_t ret = esp_lcd_new_panel_io_spi(self->bus_handle, &self->panel_io_config, &self->panel_io_handle.panel_io);
     if (ret != ESP_OK) {
         mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("%d(esp_lcd_new_panel_io_spi)"), ret);
+        return ret;
     }
 
-    machine_hw_spi_bus_add_device(&self->spi_device);
+    mp_machine_hw_spi_bus_add_device(&self->spi_device);
+
+    // add the new bus ONLY after successfull initilization of the bus
+    spi_bus_count++;
+    spi_bus_objs = m_realloc(spi_bus_objs, spi_bus_count * sizeof(mp_lcd_spi_bus_obj_t *));
+    spi_bus_objs[spi_bus_count - 1] = self;
+
     return ret;
 }
 
@@ -245,9 +308,7 @@ mp_lcd_err_t spi_get_lane_count(mp_obj_t obj, uint8_t *lane_count)
         *lane_count = 1;
     }
 
-#if CONFIG_LCD_ENABLE_DEBUG_LOG
-    printf("spi_get_lane_count(self) -> %i\n", (uint8_t)(*lane_count));
-#endif
+    LCD_DEBUG_PRINT("spi_get_lane_count(self) -> %i\n", (uint8_t)(*lane_count))
 
     return LCD_OK;
 }
@@ -257,9 +318,7 @@ mp_obj_t mp_spi_bus_get_host(mp_obj_t obj)
 {
     mp_lcd_spi_bus_obj_t *self = (mp_lcd_spi_bus_obj_t *)obj;
 
-#if CONFIG_LCD_ENABLE_DEBUG_LOG
-    printf("mp_spi_bus_get_host(self) -> %i\n", (uint8_t)self->host);
-#endif
+    LCD_DEBUG_PRINT("mp_spi_bus_get_host(self) -> %i\n", (uint8_t)self->host)
     return mp_obj_new_int((uint8_t)self->host);
 }
 

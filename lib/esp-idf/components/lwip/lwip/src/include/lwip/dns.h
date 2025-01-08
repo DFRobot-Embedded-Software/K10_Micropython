@@ -122,6 +122,12 @@ err_t          dns_local_addhost(const char *hostname, const ip_addr_t *addr);
 #endif /* DNS_LOCAL_HOSTLIST_IS_DYNAMIC */
 #endif /* DNS_LOCAL_HOSTLIST */
 
+#if LWIP_DNS_SETSERVER_WITH_NETIF
+typedef void (*dns_setserver_callback_t)(struct netif* netif, u8_t numdns, const ip_addr_t *dnsserver);
+void            dns_setserver_with_netif(struct netif* netif, u8_t numdns, const ip_addr_t *dnsserver);
+err_t           dns_setserver_callback(dns_setserver_callback_t callback);
+#endif /* LWIP_DNS_SETSERVER_WITH_NETIF */
+
 #ifdef __cplusplus
 }
 #endif

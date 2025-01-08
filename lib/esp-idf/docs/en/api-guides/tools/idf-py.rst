@@ -83,7 +83,7 @@ Build the Project: ``build``
 
 This command builds the project found in the current directory. This can involve multiple steps:
 
-  - Create the build directory if needed. The sub-directory ``build`` is used to hold build output, although this can be changed with the ``-B`` option.
+  - Create the build directory if needed. The sub-directory "build" is used to hold build output, although this can be changed with the ``-B`` option.
   - Run CMake_ as necessary to configure the project and generate build files for the main build tool.
   - Run the main build tool (Ninja_ or `GNU Make`). By default, the build tool is automatically detected but it can be explicitly set by passing the ``-G`` option to ``idf.py``.
 
@@ -119,6 +119,8 @@ Flash the Project: ``flash``
 This command automatically builds the project if necessary, and then flash it to the target. You can use ``-p`` and ``-b`` options to set serial port name and flasher baud rate, respectively.
 
 .. note:: The environment variables ``ESPPORT`` and ``ESPBAUD`` can be used to set default values for the ``-p`` and ``-b`` options, respectively. Providing these options on the command line overrides the default.
+
+``idf.py`` uses the ``write_flash`` command of ``esptool.py`` under the hood to flash the target. You can pass additional arguments to configure the flash writing process using the ``--extra-args`` option. For example, to `write to an external SPI flash chip <https://docs.espressif.com/projects/esptool/en/latest/esptool/advanced-options.html#custom-spi-pin-configuration>`_, use the following command: ``idf.py flash --extra-args="--spi-connection <CLK>,<Q>,<D>,<HD>,<CS>"``. To see the full list of available arguments, run ``esptool.py write_flash --help`` or see the `esptool.py documentation <https://docs.espressif.com/projects/esptool/en/latest/esptool/index.html>`_.
 
 Similarly to the ``build`` command, the command can be run with ``app``, ``bootloader`` and ``partition-table`` arguments to flash only the app, bootloader or partition table as applicable.
 
@@ -226,7 +228,7 @@ Global Options
 To list all available root level options, run ``idf.py --help``. To list options that are specific for a subcommand, run ``idf.py <command> --help``, e.g., ``idf.py monitor --help``. Here is a list of some useful options:
 
 - ``-C <dir>`` allows overriding the project directory from the default current working directory.
-- ``-B <dir>`` allows overriding the build directory from the default ``build`` subdirectory of the project directory.
+- ``-B <dir>`` allows overriding the build directory from the default "build" subdirectory of the project directory.
 - ``--ccache`` enables CCache_ when compiling source files if the CCache_ tool is installed. This can dramatically reduce the build time.
 
 .. important::

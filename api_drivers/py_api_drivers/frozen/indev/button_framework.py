@@ -1,3 +1,5 @@
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 import lvgl as lv  # NOQA
 import _indev_base
 
@@ -9,7 +11,7 @@ class ButtonDriver(_indev_base.IndevBase):
         self._button_points = []
 
         super().__init__()
-        self._set_type(lv.INDEV_TYPE.BUTTON)
+        self._set_type(lv.INDEV_TYPE.BUTTON)  # NOQA
 
     def set_button_points(self, *points):
         self._indev_drv.set_button_points(list(points))

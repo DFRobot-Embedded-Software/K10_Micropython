@@ -389,9 +389,12 @@ icmp6_send_response_with_addrs_and_netif(struct pbuf *p, u8_t code, u32_t data, 
 {
   struct pbuf *q;
   struct icmp6_hdr *icmp6hdr;
-  u16_t datalen = LWIP_MIN(p->tot_len, LWIP_ICMP6_DATASIZE);
+  u16_t datalen;
   u16_t offset;
 
+  LWIP_ASSERT("pbuf is NULL", p != NULL);
+
+  datalen = LWIP_MIN(p->tot_len, LWIP_ICMP6_DATASIZE);
   /* ICMPv6 header + datalen (as much of the offending packet as possible) */
   q = pbuf_alloc(PBUF_IP, sizeof(struct icmp6_hdr) + datalen,
                  PBUF_RAM);

@@ -737,7 +737,7 @@ const uint16_t *const Client::kQuestionRecordTypes[] = {
 
 Client::Client(Instance &aInstance)
     : InstanceLocator(aInstance)
-    , mSocket(aInstance)
+    , mSocket(aInstance, *this)
 #if OPENTHREAD_CONFIG_DNS_CLIENT_OVER_TCP_ENABLE
     , mTcpState(kTcpUninitialized)
 #endif
@@ -768,7 +768,7 @@ Error Client::Start(void)
 {
     Error error;
 
-    SuccessOrExit(error = mSocket.Open(&Client::HandleUdpReceive, this));
+    SuccessOrExit(error = mSocket.Open());
     SuccessOrExit(error = mSocket.Bind(0, Ip6::kNetifUnspecified));
 
 exit:
@@ -799,7 +799,7 @@ Error Client::InitTcpSocket(void)
     Error                       error;
     otTcpEndpointInitializeArgs endpointArgs;
 
-    memset(&endpointArgs, 0x00, sizeof(endpointArgs));
+    ClearAllBytes(endpointArgs);
     endpointArgs.mSendDoneCallback         = HandleTcpSendDoneCallback;
     endpointArgs.mEstablishedCallback      = HandleTcpEstablishedCallback;
     endpointArgs.mReceiveAvailableCallback = HandleTcpReceiveAvailableCallback;
@@ -1301,11 +1301,10 @@ exit:
     return matchedQuery;
 }
 
-void Client::HandleUdpReceive(void *aContext, otMessage *aMessage, const otMessageInfo *aMsgInfo)
+void Client::HandleUdpReceive(Message &aMessage, const Ip6::MessageInfo &aMsgInfo)
 {
     OT_UNUSED_VARIABLE(aMsgInfo);
-
-    static_cast<Client *>(aContext)->ProcessResponse(AsCoreType(aMessage));
+    ProcessResponse(aMessage);
 }
 
 void Client::ProcessResponse(const Message &aResponseMessage)
@@ -1496,9 +1495,8 @@ void Client::PrepareResponseAndFinalize(Query &aQuery, const Message &aResponseM
 
 void Client::HandleTimer(void)
 {
-    TimeMilli now      = TimerMilli::GetNow();
-    TimeMilli nextTime = now.GetDistantFuture();
-    QueryInfo info;
+    NextFireTime nextTime;
+    QueryInfo    info;
 #if OPENTHREAD_CONFIG_DNS_CLIENT_OVER_TCP_ENABLE
     bool hasTcpQuery = false;
 #endif
@@ -1514,7 +1512,7 @@ void Client::HandleTimer(void)
                 continue;
             }
 
-            if (now >= info.mRetransmissionTime)
+            if (nextTime.GetNow() >= info.mRetransmissionTime)
             {
                 if (info.mTransmissionCount >= info.mConfig.GetMaxTxAttempts())
                 {
@@ -1522,13 +1520,20 @@ void Client::HandleTimer(void)
                     break;
                 }
 
-                IgnoreError(SendQuery(*query, info, /* aUpdateTimer */ false));
+#if OPENTHREAD_CONFIG_DNS_CLIENT_SERVICE_DISCOVERY_ENABLE
+                if (ReplaceWithSeparateSrvTxtQueries(*query) == kErrorNone)
+                {
+                    LogInfo("Switching to separate SRV/TXT on response timeout");
+                    info.ReadFrom(*query);
+                }
+                else
+#endif
+                {
+                    IgnoreError(SendQuery(*query, info, /* aUpdateTimer */ false));
+                }
             }
 
-            if (nextTime > info.mRetransmissionTime)
-            {
-                nextTime = info.mRetransmissionTime;
-            }
+            nextTime.UpdateIfEarlier(info.mRetransmissionTime);
 
 #if OPENTHREAD_CONFIG_DNS_CLIENT_OVER_TCP_ENABLE
             if (info.mConfig.GetTransportProto() == QueryConfig::kDnsTransportTcp)
@@ -1539,10 +1544,7 @@ void Client::HandleTimer(void)
         }
     }
 
-    if (nextTime < now.GetDistantFuture())
-    {
-        mTimer.FireAt(nextTime);
-    }
+    mTimer.FireAtIfEarlier(nextTime);
 
 #if OPENTHREAD_CONFIG_DNS_CLIENT_OVER_TCP_ENABLE
     if (!hasTcpQuery && mTcpState != kTcpUninitialized)
@@ -1634,7 +1636,7 @@ void Client::ResolveHostAddressIfNeeded(Query &aQuery, const Message &aResponseM
 
     PopulateResponse(response, aQuery, aResponseMessage);
 
-    memset(&serviceInfo, 0, sizeof(serviceInfo));
+    ClearAllBytes(serviceInfo);
     serviceInfo.mHostNameBuffer     = hostName;
     serviceInfo.mHostNameBufferSize = sizeof(hostName);
     SuccessOrExit(response.ReadServiceInfo(Response::kAnswerSection, Name(aQuery, kNameOffsetInQuery), serviceInfo));

@@ -1220,9 +1220,11 @@ void Frame::SetEnhAckProbingIe(const uint8_t *aValue, uint8_t aLen)
 {
     uint8_t *cur = GetThreadIe(ThreadIe::kEnhAckProbingIe);
 
-    OT_ASSERT(cur != nullptr);
-
+    VerifyOrExit(cur != nullptr);
     memcpy(cur + sizeof(HeaderIe) + sizeof(VendorIeHeader), aValue, aLen);
+
+exit:
+    return;
 }
 #endif // OPENTHREAD_CONFIG_MLE_LINK_METRICS_SUBJECT_ENABLE
 
@@ -1385,7 +1387,7 @@ void TxFrame::GenerateImmAck(const RxFrame &aFrame, bool aIsFramePending)
     uint16_t fcf = static_cast<uint16_t>(kTypeAck) | aFrame.GetVersion();
 
     mChannel = aFrame.mChannel;
-    memset(&mInfo.mTxInfo, 0, sizeof(mInfo.mTxInfo));
+    ClearAllBytes(mInfo.mTxInfo);
 
     if (aIsFramePending)
     {
@@ -1449,7 +1451,7 @@ Error TxFrame::GenerateEnhAck(const RxFrame &aRxFrame, bool aIsFramePending, con
     // Prepare the ack frame
 
     mChannel = aRxFrame.mChannel;
-    memset(&mInfo.mTxInfo, 0, sizeof(mInfo.mTxInfo));
+    ClearAllBytes(mInfo.mTxInfo);
 
     InitMacHeader(kTypeAck, kVersion2015, addrs, panIds, static_cast<SecurityLevel>(securityLevel),
                   static_cast<KeyIdMode>(keyIdMode));

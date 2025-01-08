@@ -4,13 +4,9 @@
 #
 # This file is imported from a language-specific conf.py (ie en/conf.py or
 # zh_CN/conf.py)
-
 # type: ignore
 # pylint: disable=wildcard-import
 # pylint: disable=undefined-variable
-
-from __future__ import print_function, unicode_literals
-
 import os.path
 import re
 from pathlib import Path
@@ -20,21 +16,24 @@ from esp_docs.conf_docs import *  # noqa: F403,F401
 if os.environ.get('IDF_PATH') is None:
     raise RuntimeError('IDF_PATH should be set, run export.sh before building docs')
 
-BT_DOCS = ['api-guides/bluetooth.rst',
-           'api-reference/bluetooth/bt_le.rst',
-           'api-reference/bluetooth/esp_bt_defs.rst',
+BT_DOCS = ['api-reference/bluetooth/esp_bt_defs.rst',
            'api-reference/bluetooth/esp_bt_device.rst',
            'api-reference/bluetooth/esp_bt_main.rst',
            'api-reference/bluetooth/bt_common.rst',
            'api-reference/bluetooth/controller_vhci.rst',
-           'api-reference/bluetooth/esp_gap_ble.rst',
-           'api-reference/bluetooth/esp_gatt_defs.rst',
-           'api-reference/bluetooth/esp_gatts.rst',
-           'api-reference/bluetooth/esp_gattc.rst',
-           'api-reference/bluetooth/index.rst',
-           'api-reference/bluetooth/nimble/index.rst']
+           'api-reference/bluetooth/index.rst']
 
-BLE_DOCS = ['migration-guides/release-5.x/5.0/bluetooth-low-energy.rst']
+BLE_DOCS = ['api-guides/ble/index.rst',
+            'api-guides/ble/overview.rst',
+            'api-guides/ble/ble-feature-support-status.rst',
+            'api-guides/ble/host-feature-support-status.rst',
+            'api-reference/bluetooth/bt_le.rst',
+            'api-reference/bluetooth/esp_gap_ble.rst',
+            'api-reference/bluetooth/esp_gatt_defs.rst',
+            'api-reference/bluetooth/esp_gatts.rst',
+            'api-reference/bluetooth/esp_gattc.rst',
+            'api-reference/bluetooth/nimble/index.rst',
+            'migration-guides/release-5.x/5.0/bluetooth-low-energy.rst']
 
 BLE_MESH_DOCS = ['api-guides/esp-ble-mesh/ble-mesh-index.rst',
                  'api-guides/esp-ble-mesh/ble-mesh-feature-list.rst',
@@ -43,7 +42,9 @@ BLE_MESH_DOCS = ['api-guides/esp-ble-mesh/ble-mesh-index.rst',
                  'api-guides/esp-ble-mesh/ble-mesh-faq.rst',
                  'api-reference/bluetooth/esp-ble-mesh.rst']
 
-CLASSIC_BT_DOCS = ['api-reference/bluetooth/classic_bt.rst',
+CLASSIC_BT_DOCS = ['api-guides/classic-bt/index.rst',
+                   'api-guides/classic-bt/overview.rst',
+                   'api-reference/bluetooth/classic_bt.rst',
                    'api-reference/bluetooth/esp_a2dp.rst',
                    'api-reference/bluetooth/esp_avrc.rst',
                    'api-reference/bluetooth/esp_hidd.rst',
@@ -57,7 +58,7 @@ CLASSIC_BT_DOCS = ['api-reference/bluetooth/classic_bt.rst',
                    'api-reference/bluetooth/esp_gap_bt.rst',
                    'migration-guides/release-5.x/5.0/bluetooth-classic.rst']
 
-BLUFI_DOCS = ['api-guides/blufi.rst',
+BLUFI_DOCS = ['api-guides/ble/blufi.rst',
               'api-reference/bluetooth/esp_blufi.rst']
 
 WIFI_DOCS = ['api-guides/wifi.rst',
@@ -68,6 +69,9 @@ WIFI_DOCS = ['api-guides/wifi.rst',
              'api-reference/network/esp_wifi.rst',
              'api-reference/network/esp_dpp.rst',
              'migration-guides/release-5.x/5.2/wifi.rst']
+
+IEEE802154_DOCS = ['migration-guides/release-5.x/5.1/ieee802154.rst',
+                   'migration-guides/release-5.x/5.2/ieee802154.rst']
 
 NAN_DOCS = ['api-reference/network/esp_nan.rst']
 
@@ -109,6 +113,7 @@ USB_DOCS = ['api-reference/peripherals/usb_device.rst',
             'api-reference/peripherals/usb_host/usb_host_notes_design.rst',
             'api-reference/peripherals/usb_host/usb_host_notes_dwc_otg.rst',
             'api-reference/peripherals/usb_host/usb_host_notes_index.rst',
+            'api-reference/peripherals/usb_host/usb_host_notes_usbh.rst',
             'api-guides/usb-otg-console.rst',
             'api-guides/dfu.rst']
 
@@ -191,6 +196,7 @@ conditional_include_dict = {'SOC_BT_SUPPORTED':BT_DOCS,
                             'SOC_BLUFI_SUPPORTED':BLUFI_DOCS,
                             'SOC_WIFI_SUPPORTED':WIFI_DOCS,
                             'SOC_BT_CLASSIC_SUPPORTED':CLASSIC_BT_DOCS,
+                            'SOC_IEEE802154_SUPPORTED':IEEE802154_DOCS,
                             'SOC_SUPPORT_COEXISTENCE':COEXISTENCE_DOCS,
                             'SOC_PSRAM_DMA_CAPABLE':MM_SYNC_DOCS,
                             'SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE':MM_SYNC_DOCS,
@@ -262,6 +268,7 @@ github_repo = 'espressif/esp-idf'
 html_context['github_user'] = 'espressif'
 html_context['github_repo'] = 'esp-idf'
 
+
 # Extra options required by sphinx_idf_theme
 project_slug = 'esp-idf'
 versions_url = 'https://dl.espressif.com/dl/esp-idf/idf_versions.js'
@@ -317,6 +324,8 @@ def conf_setup(app, config):
     except FileNotFoundError:
         # Not for all target
         pass
+
+    config.html_baseurl = f'https://docs.espressif.com/projects/esp-idf/{config.language}/stable/{config.idf_target}'
 
 
 user_setup_callback = conf_setup

@@ -128,6 +128,8 @@
 namespace ot {
 namespace Posix {
 
+const char HdlcInterface::kLogModuleName[] = "HdlcIntface";
+
 HdlcInterface::HdlcInterface(const Url::Url &aRadioUrl)
     : mReceiveFrameCallback(nullptr)
     , mReceiveFrameContext(nullptr)
@@ -164,7 +166,7 @@ otError HdlcInterface::Init(ReceiveFrameCallback aCallback, void *aCallbackConte
 #endif // OPENTHREAD_POSIX_CONFIG_RCP_PTY_ENABLE
     else
     {
-        otLogCritPlat("Radio file '%s' not supported", mRadioUrl.GetPath());
+        LogCrit("Radio file '%s' not supported", mRadioUrl.GetPath());
         ExitNow(error = OT_ERROR_FAILED);
     }
 
@@ -598,6 +600,20 @@ int HdlcInterface::OpenFile(const Url::Url &aRadioUrl)
         {
             tios.c_cflag |= CRTSCTS;
         }
+        else
+        {
+#ifndef __APPLE__
+            int flags;
+#endif
+
+            tios.c_cflag &= ~(CRTSCTS);
+
+#ifndef __APPLE__
+            // Deassert DTR and RTS
+            flags = TIOCM_DTR | TIOCM_RTS;
+            VerifyOrExit(ioctl(fd, TIOCMBIC, &flags) != -1, perror("tiocmbic"));
+#endif
+        }
 
         VerifyOrExit((rval = cfsetspeed(&tios, static_cast<speed_t>(speed))) == 0, perror("cfsetspeed"));
         rval = tcsetattr(fd, TCSANOW, &tios);
@@ -714,7 +730,7 @@ void HdlcInterface::HandleHdlcFrame(otError aError)
     {
         mInterfaceMetrics.mTransferredGarbageFrameCount++;
         mReceiveFrameBuffer->DiscardFrame();
-        otLogWarnPlat("Error decoding hdlc frame: %s", otThreadErrorToString(aError));
+        LogWarn("Error decoding hdlc frame: %s", otThreadErrorToString(aError));
     }
 
 exit:
@@ -742,7 +758,7 @@ otError HdlcInterface::ResetConnection(void)
             usleep(static_cast<useconds_t>(kOpenFileDelay) * US_PER_MS);
         } while (end > otPlatTimeGet());
 
-        otLogCritPlat("Failed to reopen UART connection after resetting the RCP device.");
+        LogCrit("Failed to reopen UART connection after resetting the RCP device.");
         error = OT_ERROR_FAILED;
     }
 

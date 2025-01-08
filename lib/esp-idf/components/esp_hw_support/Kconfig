@@ -173,6 +173,7 @@ menu "Hardware Settings"
         config ESP_SLEEP_CACHE_SAFE_ASSERTION
             bool "Check the cache safety of the sleep wakeup code in sleep process"
             default n
+            select ESP_PANIC_HANDLER_IRAM
             help
                 Enabling it will check the cache safety of the code before the flash power is ready after
                 light sleep wakeup, and check PM_SLP_IRAM_OPT related code cache safety. This option is
@@ -205,18 +206,6 @@ menu "Hardware Settings"
 
                 NOTE: Enabling these callbacks may change sleep duration calculations based on time spent in
                 callback and hence it is highly recommended to keep them as short as possible.
-    endmenu
-
-    menu "ESP_SLEEP_WORKAROUND"
-        # No visible menu/configs for workaround
-        visible if 0
-        config ESP_SLEEP_SYSTIMER_STALL_WORKAROUND
-            bool "ESP32C3 SYSTIMER Stall Issue Workaround"
-            depends on IDF_TARGET_ESP32C3
-            help
-                Its not able to stall ESP32C3 systimer in sleep.
-                To fix related RTOS TICK issue, select it to disable related systimer during sleep.
-                TODO: IDF-7036
     endmenu
 
     menu "RTC Clock Config"

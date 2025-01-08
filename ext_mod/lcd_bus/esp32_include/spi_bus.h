@@ -1,3 +1,5 @@
+// Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 #ifndef _ESP32_SPI_BUS_H_
     #define _ESP32_SPI_BUS_H_
 
@@ -22,8 +24,9 @@
 
         mp_obj_t callback;
 
-        void *buf1;
-        void *buf2;
+        mp_obj_array_t *view1;
+        mp_obj_array_t *view2;
+
         uint32_t buffer_flags;
 
         bool trans_done;
@@ -35,9 +38,13 @@
         esp_lcd_spi_bus_handle_t bus_handle;
 
         spi_host_device_t host;
-        machine_hw_spi_device_obj_t spi_device;
+        mp_machine_hw_spi_device_obj_t spi_device;
     } mp_lcd_spi_bus_obj_t;
 
     extern const mp_obj_type_t mp_lcd_spi_bus_type;
+
+    extern void mp_lcd_spi_bus_deinit_all(void);
+
+
 #endif /* _ESP32_SPI_BUS_H_ */
 

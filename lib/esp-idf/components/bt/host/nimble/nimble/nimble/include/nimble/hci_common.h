@@ -1,4 +1,11 @@
 /*
+ * SPDX-FileCopyrightText: 2015-2023 The Apache Software Foundation (ASF)
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * SPDX-FileContributor: 2019-2022 Espressif Systems (Shanghai) CO LTD
+ */
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -1069,7 +1076,6 @@ struct ble_hci_le_enh_read_transmit_power_level_cp {
     uint8_t phy;
 } __attribute__((packed));
 struct ble_hci_le_enh_read_transmit_power_level_rp {
-    uint8_t status;
     uint16_t conn_handle;
     uint8_t phy;
     uint8_t curr_tx_power_level;
@@ -1178,6 +1184,11 @@ struct ble_hci_vs_duplicate_exception_list_cp {
 } __attribute__((packed));
 
 #define BLE_HCI_OCF_VS_LEGACY_ADV_CLEAR                 (MYNEWT_VAL(BLE_HCI_VS_OCF_OFFSET) + (0x010C))
+
+#if SOC_BLE_POWER_CONTROL_SUPPORTED
+#define BLE_HCI_OCF_VS_PCL_SET_RSSI                     (MYNEWT_VAL(BLE_HCI_VS_OCF_OFFSET) + (0x0111))
+#endif
+
 #define BLE_HCI_OCF_VS_SET_CHAN_SELECT                  (MYNEWT_VAL(BLE_HCI_VS_OCF_OFFSET) + (0x0112))
 
 /* Command Specific Definitions */
@@ -1220,8 +1231,17 @@ struct ble_hci_vs_duplicate_exception_list_cp {
 #define BLE_HCI_ADV_PEER_ADDR_MAX           (1)
 
 /* --- LE advertising channel tx power (OCF 0x0007) */
-#define BLE_HCI_ADV_CHAN_TXPWR_MIN             (-20)
-#define BLE_HCI_ADV_CHAN_TXPWR_MAX             (10)
+#if MYNEWT_VAL(BLE_VERSION) == 50
+#define BLE_HCI_ADV_CHAN_TXPWR_MIN          (-20)
+#define BLE_HCI_ADV_CHAN_TXPWR_MAX          (10)
+#elif MYNEWT_VAL(BLE_VERSION) == 51
+#define BLE_HCI_ADV_CHAN_TXPWR_MIN          (-20)
+#define BLE_HCI_ADV_CHAN_TXPWR_MAX          (20)
+#elif MYNEWT_VAL(BLE_VERSION) >= 52
+#define BLE_HCI_ADV_CHAN_TXPWR_MIN          (-127)
+#define BLE_HCI_ADV_CHAN_TXPWR_MAX          (20)
+#endif
+
 
 /* --- LE set scan enable (OCF 0x000c) */
 
@@ -1937,6 +1957,11 @@ struct ble_hci_ev_le_subev_subrate_change {
     uint16_t cont_num;
     uint16_t supervision_tmo;
 } __attribute__((packed));
+
+#if (BLE_ADV_REPORT_FLOW_CONTROL == TRUE)
+// LE vendor hci event
+#define BLE_HCI_LE_SUBEV_DISCARD_REPORT_EVT      0XF0
+#endif // (BLE_ADV_REPORT_FLOW_CONTROL == TRUE)
 
 /* Data buffer overflow event */
 #define BLE_HCI_EVENT_ACL_BUF_OVERFLOW      (0x01)

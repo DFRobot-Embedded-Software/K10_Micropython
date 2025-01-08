@@ -1,3 +1,5 @@
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 import os
 import sys
 from argparse import ArgumentParser
@@ -82,9 +84,8 @@ def build_commands(_, extra_args, __, lv_cflags, brd):
     return extra_args
 
 
-
 def build_manifest(
-    target, script_dir, lvgl_api, displays, indevs, frozen_manifest
+    target, script_dir, lvgl_api, displays, indevs, expanders, frozen_manifest
 ):
     update_mphalport(target)
     
@@ -92,7 +93,7 @@ def build_manifest(
 
     generate_manifest(
         script_dir, lvgl_api, manifest_path,
-        displays, indevs, frozen_manifest
+        displays, indevs, expanders, frozen_manifest
     )
 
 

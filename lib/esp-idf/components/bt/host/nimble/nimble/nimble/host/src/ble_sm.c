@@ -492,6 +492,7 @@ ble_sm_fill_store_value(const ble_addr_t *peer_addr,
 
     if (keys->csrk_valid) {
         memcpy(value_sec->csrk, keys->csrk, sizeof value_sec->csrk);
+        value_sec->sign_counter = keys->sign_counter;
         value_sec->csrk_present = 1;
     }
 }
@@ -614,8 +615,13 @@ ble_sm_persist_keys(struct ble_sm_proc *proc)
     ble_sm_fill_store_value(&peer_addr, authenticated, sc, &proc->peer_keys,
                             &value_sec);
     ble_store_write_peer_sec(&value_sec);
-    value_rpa_rec.peer_addr=peer_addr;
-    value_rpa_rec.peer_rpa_addr=conn->bhc_peer_rpa_addr;
+
+    value_rpa_rec.peer_addr.type = peer_addr.type;
+    memcpy(value_rpa_rec.peer_addr.val, peer_addr.val, sizeof peer_addr.val);
+
+    value_rpa_rec.peer_rpa_addr.type = conn->bhc_peer_rpa_addr.type;
+    memcpy(value_rpa_rec.peer_rpa_addr.val, conn->bhc_peer_rpa_addr.val, sizeof conn->bhc_peer_rpa_addr.val);
+
     ble_store_write_rpa_rec(&value_rpa_rec);
 }
 
@@ -748,8 +754,13 @@ static void
 ble_sm_rx_noop(uint16_t conn_handle, struct os_mbuf **om,
                struct ble_sm_result *res)
 {
+    /**
+     * Unsupported PDU received
+     * Recommended action: Ignore
+     */
     res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_CMD_NOT_SUPP);
     res->sm_err = BLE_SM_ERR_CMD_NOT_SUPP;
+    res->out_of_order = 1;
 }
 
 static uint8_t
@@ -944,6 +955,17 @@ ble_sm_process_result(uint16_t conn_handle, struct ble_sm_result *res)
 
     rm = 0;
 
+    if (res && res->out_of_order) {
+        /**
+         * An unexpected SM PDU received.
+         * Spec recommends ignore the PDU.
+         */
+        memset(res, 0, sizeof *res);
+        res->sm_err = BLE_SM_ERR_UNSPECIFIED;
+        res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_UNSPECIFIED);
+        return;
+    }
+
     while (1) {
         ble_hs_lock();
         proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_NONE, -1,
@@ -995,6 +1017,14 @@ ble_sm_process_result(uint16_t conn_handle, struct ble_sm_result *res)
 	    break;
         }
 
+        /* Persist keys if bonding has successfully completed. */
+        if (res->app_status == 0    &&
+            rm                      &&
+            proc->flags & BLE_SM_PROC_F_BONDING) {
+
+            ble_sm_persist_keys(proc);
+        }
+
         if (res->enc_cb) {
             BLE_HS_DBG_ASSERT(proc == NULL || rm);
             ble_gap_enc_event(conn_handle, res->app_status, res->restore, res->bonded);
@@ -1006,13 +1036,6 @@ ble_sm_process_result(uint16_t conn_handle, struct ble_sm_result *res)
             ble_gap_passkey_event(conn_handle, &res->passkey_params);
         }
 
-        /* Persist keys if bonding has successfully completed. */
-        if (res->app_status == 0    &&
-            rm                      &&
-            proc->flags & BLE_SM_PROC_F_BONDING) {
-
-            ble_sm_persist_keys(proc);
-        }
 
         if (rm) {
             ble_sm_proc_free(proc);
@@ -1530,7 +1553,12 @@ ble_sm_random_rx(uint16_t conn_handle, struct os_mbuf **om,
     ble_hs_lock();
     proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_RANDOM, -1, NULL);
     if (proc == NULL) {
+        /**
+         * Unexpectedly received pairing random value.
+         * Recommended action: Ignore
+         */
         res->app_status = BLE_HS_ENOENT;
+        res->out_of_order = 1;
     } else {
         memcpy(ble_sm_peer_pair_rand(proc), cmd->value, 16);
 
@@ -1578,7 +1606,12 @@ ble_sm_confirm_rx(uint16_t conn_handle, struct os_mbuf **om,
     ble_hs_lock();
     proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_CONFIRM, -1, NULL);
     if (proc == NULL) {
+        /**
+         * Unexpectedly received pairing confirm value.
+         * Recommended action: Ignore
+         */
         res->app_status = BLE_HS_ENOENT;
+        res->out_of_order = 1;
     } else {
         memcpy(proc->confirm_peer, cmd->value, 16);
 
@@ -1835,12 +1868,13 @@ ble_sm_pair_req_rx(uint16_t conn_handle, struct os_mbuf **om,
      */
     proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_NONE, -1, &prev);
     if (proc != NULL) {
-        /* Fail if procedure is in progress unless we sent a slave security
+        /* Ignore if procedure is in progress unless we sent a slave security
          * request to peer.
          */
         if (proc->state != BLE_SM_PROC_STATE_SEC_REQ) {
             res->sm_err = BLE_SM_ERR_UNSPECIFIED;
             res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_UNSPECIFIED);
+            res->out_of_order = 1;
             ble_hs_unlock();
             return;
         }
@@ -1986,6 +2020,14 @@ ble_sm_pair_rsp_rx(uint16_t conn_handle, struct os_mbuf **om,
                 }
             }
         }
+    } else {
+        /**
+         * Unexpectedly received pairing response.
+         * Recommended action: Ignore
+         */
+        res->sm_err = BLE_SM_ERR_UNSPECIFIED;
+        res->app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_UNSPECIFIED);
+        res->out_of_order = 1;
     }
 
     ble_hs_unlock();
@@ -2026,6 +2068,7 @@ ble_sm_sec_req_rx(uint16_t conn_handle, struct os_mbuf **om,
     struct ble_hs_conn_addrs addrs;
     struct ble_sm_sec_req *cmd;
     struct ble_hs_conn *conn;
+    struct ble_sm_proc *proc;
     int authreq_mitm;
 
     res->app_status = ble_hs_mbuf_pullup_base(om, sizeof(*cmd));
@@ -2074,6 +2117,16 @@ ble_sm_sec_req_rx(uint16_t conn_handle, struct os_mbuf **om,
             if (authreq_mitm && !value_sec.authenticated) {
                 res->app_status = BLE_HS_EREJECT;
             }
+        }
+
+        /** Make sure a procedure isn't already in progress for this connection. */
+        ble_hs_lock();
+        proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_NONE, -1, NULL);
+        ble_hs_unlock();
+        if (proc != NULL) {
+            res->out_of_order = 1;
+            proc = NULL;
+            return;
         }
 
         if (res->app_status == 0) {
@@ -2266,6 +2319,7 @@ ble_sm_key_exch_exec(struct ble_sm_proc *proc, struct ble_sm_result *res,
         }
 
         proc->our_keys.csrk_valid = 1;
+        proc->our_keys.sign_counter = 0;
         memcpy(proc->our_keys.csrk, sign_info->sig_key, 16);
 
         rc = ble_sm_tx(proc->conn_handle, txom);
@@ -2324,8 +2378,13 @@ ble_sm_enc_info_rx(uint16_t conn_handle, struct os_mbuf **om,
 
     proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_KEY_EXCH, -1, NULL);
     if (proc == NULL) {
+        /**
+         * Unexpected encryption info received
+         * Recommended action: Ignore
+         */
         res->app_status = BLE_HS_ENOENT;
         res->sm_err = BLE_SM_ERR_UNSPECIFIED;
+        res->out_of_order = 1;
     } else {
         proc->rx_key_flags &= ~BLE_SM_KE_F_ENC_INFO;
         proc->peer_keys.ltk_valid = 1;
@@ -2358,8 +2417,13 @@ ble_sm_master_id_rx(uint16_t conn_handle, struct os_mbuf **om,
 
     proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_KEY_EXCH, -1, NULL);
     if (proc == NULL) {
+        /**
+         * Unexpected central indentification info recieved
+         * Recommended action: Ignore
+         */
         res->app_status = BLE_HS_ENOENT;
         res->sm_err = BLE_SM_ERR_UNSPECIFIED;
+        res->out_of_order = 1;
     } else {
         proc->rx_key_flags &= ~BLE_SM_KE_F_MASTER_ID;
         proc->peer_keys.ediv_rand_valid = 1;
@@ -2393,8 +2457,13 @@ ble_sm_id_info_rx(uint16_t conn_handle, struct os_mbuf **om,
 
     proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_KEY_EXCH, -1, NULL);
     if (proc == NULL) {
+        /**
+         * Unexpected ID info received
+         * Recommended action: Ignore
+         */
         res->app_status = BLE_HS_ENOENT;
         res->sm_err = BLE_SM_ERR_UNSPECIFIED;
+        res->out_of_order = 1;
     } else {
         proc->rx_key_flags &= ~BLE_SM_KE_F_ID_INFO;
 
@@ -2427,8 +2496,13 @@ ble_sm_id_addr_info_rx(uint16_t conn_handle, struct os_mbuf **om,
 
     proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_KEY_EXCH, -1, NULL);
     if (proc == NULL) {
+        /**
+         * Unexpected identity address info received
+         * Recommended action: Ignore
+         */
         res->app_status = BLE_HS_ENOENT;
         res->sm_err = BLE_SM_ERR_UNSPECIFIED;
+        res->out_of_order = 1;
     } else {
         proc->rx_key_flags &= ~BLE_SM_KE_F_ADDR_INFO;
         proc->peer_keys.addr_valid = 1;
@@ -2461,13 +2535,19 @@ ble_sm_sign_info_rx(uint16_t conn_handle, struct os_mbuf **om,
 
     proc = ble_sm_proc_find(conn_handle, BLE_SM_PROC_STATE_KEY_EXCH, -1, NULL);
     if (proc == NULL) {
+        /**
+         * Unexpected signing info received
+         * Recommended action: Ignore
+         */
         res->app_status = BLE_HS_ENOENT;
         res->sm_err = BLE_SM_ERR_UNSPECIFIED;
+        res->out_of_order = 1;
     } else {
         proc->rx_key_flags &= ~BLE_SM_KE_F_SIGN_INFO;
 
         memcpy(proc->peer_keys.csrk, cmd->sig_key, 16);
         proc->peer_keys.csrk_valid = 1;
+        proc->peer_keys.sign_counter = 0;
 
         ble_sm_key_rxed(proc, res);
     }
@@ -2498,6 +2578,106 @@ ble_sm_fail_rx(uint16_t conn_handle, struct os_mbuf **om,
 /*****************************************************************************
  * $api                                                                      *
  *****************************************************************************/
+
+/**
+ * API to be used to increment the sign-counter whenever the CSRK is used
+ * to sign a message.
+ *
+ * @param conn_handle           The connection_handle of the peer to whom
+ *                                the signed message is sent, and with
+ *                                whom the CSRK was shared that was used
+ *                                to sign the message.
+ */
+int
+ble_sm_incr_our_sign_counter(uint16_t conn_handle)
+{
+   struct ble_store_key_sec key_sec;
+   struct ble_store_value_sec value_sec;
+   struct ble_gap_conn_desc desc;
+   int rc;
+
+   rc = ble_gap_conn_find(conn_handle, &desc);
+   if (rc != 0) {
+      return rc;
+   }
+
+   memset(&key_sec, 0, sizeof key_sec);
+   key_sec.peer_addr = desc.peer_id_addr;
+
+   rc = ble_store_read_our_sec(&key_sec, &value_sec);
+   if (rc != 0) {
+      return rc;
+   }
+   if (value_sec.csrk_present != 1) {
+      return BLE_HS_ENOENT;
+   }
+   if (value_sec.sign_counter == (uint32_t)0xffffffff) {
+      return BLE_HS_ENOMEM;
+   }
+
+   rc = ble_store_delete_our_sec(&key_sec);
+   if (rc != 0) {
+      return rc;
+   }
+
+   value_sec.sign_counter += 1;
+   rc = ble_store_write_our_sec(&value_sec);
+   if (rc != 0) {
+      return rc;
+   }
+
+   return 0;
+}
+
+/**
+ * API to be used to increment the sign-counter whenever the CSRK is used
+ * to authenticate a received signed message.
+ *
+ * @param conn_handle           The connection_handle of the peer from whom
+ *                                the signed message is received, and with
+ *                                whom the CSRK was shared that was used
+ *                                to authenticate the signed message.
+ */
+int
+ble_sm_incr_peer_sign_counter(uint16_t conn_handle)
+{
+   struct ble_store_key_sec key_sec;
+   struct ble_store_value_sec value_sec;
+   struct ble_gap_conn_desc desc;
+   int rc;
+
+   rc = ble_gap_conn_find(conn_handle, &desc);
+   if (rc != 0) {
+      return rc;
+   }
+
+   memset(&key_sec, 0, sizeof key_sec);
+   key_sec.peer_addr = desc.peer_id_addr;
+
+   rc = ble_store_read_peer_sec(&key_sec, &value_sec);
+   if (rc != 0) {
+      return rc;
+   }
+   if (value_sec.csrk_present != 1) {
+      return BLE_HS_ENOENT;
+   }
+   if (value_sec.sign_counter == (uint32_t)0xffffffff) {
+      return BLE_HS_ENOMEM;
+   }
+
+   rc = ble_store_delete_peer_sec(&key_sec);
+   if (rc != 0) {
+      return rc;
+   }
+
+   value_sec.sign_counter += 1;
+   rc = ble_store_write_peer_sec(&value_sec);
+   if (rc != 0) {
+      return rc;
+   }
+
+   return 0;
+}
 
 /**
  * Times out expired SM procedures.
@@ -2794,7 +2974,6 @@ ble_sm_inject_io(uint16_t conn_handle, struct ble_sm_io *pkey)
             if (!ble_sm_sc_oob_data_check(proc,
                                           (pkey->oob_sc_data.local != NULL),
                                           (pkey->oob_sc_data.remote != NULL))) {
-                res.app_status = BLE_HS_SM_US_ERR(BLE_SM_ERR_OOB);
                 res.sm_err = BLE_SM_ERR_OOB;
             } else {
                 proc->flags |= BLE_SM_PROC_F_IO_INJECTED;

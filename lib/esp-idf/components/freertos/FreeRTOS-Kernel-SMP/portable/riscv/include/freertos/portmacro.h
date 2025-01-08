@@ -96,6 +96,13 @@ typedef spinlock_t                          portMUX_TYPE;               /**< Spi
 
 BaseType_t xPortCheckIfInISR(void);
 
+/**
+ * @brief Assert if in ISR context
+ *
+ * - Asserts on xPortCheckIfInISR() internally
+ */
+void vPortAssertIfInISR(void);
+
 // ------------------ Critical Sections --------------------
 
 /*
@@ -169,6 +176,15 @@ void vPortTCBPreDeleteHook( void *pxTCB );
 #define portENABLE_INTERRUPTS()                     vPortClearInterruptMask(1)
 #define portRESTORE_INTERRUPTS(x)                   vPortClearInterruptMask(x)
 
+/**
+ * @brief Assert if in ISR context
+ *
+ * TODO: Enable once ISR safe version of vTaskEnter/ExitCritical() is implemented
+ * for single-core SMP FreeRTOS Kernel. (IDF-10540)
+ */
+// #define portASSERT_IF_IN_ISR() vPortAssertIfInISR()
+
+
 // ------------------ Critical Sections --------------------
 
 #define portGET_TASK_LOCK()                         vPortTakeLock(&port_xTaskLock)
@@ -220,11 +236,11 @@ extern void vTaskExitCritical( void );
 // ------------------- Run Time Stats ----------------------
 
 #define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()
-#define portGET_RUN_TIME_COUNTER_VALUE()            0
 #ifdef CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER
-/* Coarse resolution time (us) */
-#define portALT_GET_RUN_TIME_COUNTER_VALUE(x)       do {x = (uint32_t)esp_timer_get_time();} while(0)
-#endif
+#define portGET_RUN_TIME_COUNTER_VALUE()        ((configRUN_TIME_COUNTER_TYPE) esp_timer_get_time())
+#else
+#define portGET_RUN_TIME_COUNTER_VALUE()        0
+#endif // CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER
 
 // --------------------- TCB Cleanup -----------------------
 
@@ -320,6 +336,17 @@ void vPortSetStackWatchpoint(void *pxStackStart);
 // -------------------- Heap Related -----------------------
 
 /**
+ * @brief Checks if a given piece of memory can be used to store a FreeRTOS list
+ *
+ * - Defined in heap_idf.c
+ *
+ * @param ptr Pointer to memory
+ * @return true Memory can be used to store a List
+ * @return false Otherwise
+ */
+bool xPortCheckValidListMem(const void *ptr);
+
+/**
  * @brief Checks if a given piece of memory can be used to store a task's TCB
  *
  * - Defined in heap_idf.c
@@ -341,6 +368,7 @@ bool xPortCheckValidTCBMem(const void *ptr);
  */
 bool xPortcheckValidStackMem(const void *ptr);
 
+#define portVALID_LIST_MEM(ptr)     xPortCheckValidListMem(ptr)
 #define portVALID_TCB_MEM(ptr)      xPortCheckValidTCBMem(ptr)
 #define portVALID_STACK_MEM(ptr)    xPortcheckValidStackMem(ptr)
 

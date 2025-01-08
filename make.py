@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
 
 import os
 import sys
@@ -28,7 +29,7 @@ argParser.add_argument(
 args1, extra_args = argParser.parse_known_args(sys.argv[1:])
 target = args1.target[0]
 
-argParser = ArgumentParser(prefix_chars='mscLBFDIV')
+argParser = ArgumentParser(prefix_chars='mscLBFDIVE')
 
 argParser.add_argument(
     'clean',
@@ -75,8 +76,8 @@ argParser.add_argument(
     dest='displays',
     help=(
         'display name or path (absolute) to display driver. '
-        'Display name is the name of the source file under '
-        'driver/display (without the ".py")'
+        'Display name is the name of the directory under '
+        'api_drivers/common_api_drivers/display'
     ),
     action='append',
     default=[]
@@ -86,9 +87,21 @@ argParser.add_argument(
     'INDEV',
     dest='indevs',
     help=(
-        'indev device name or path (absolue) to indev driver. '
+        'indev ic model or path (absolue) to indev driver. '
         'Indev name is the name of the source file under '
-        'driver/indev (without the ".py")'
+        'api_drivers/common_api_drivers/indev (without the ".py")'
+    ),
+    action='append',
+    default=[]
+)
+
+argParser.add_argument(
+    'EXPANDER',
+    dest='expanders',
+    help=(
+        'io expander ic model or path (absolue) to an io expander driver. '
+        'the model is the name of the source file under '
+        'api_drivers/common_api_drivers/io_expander (without the ".py")'
     ),
     action='append',
     default=[]
@@ -102,34 +115,15 @@ board = args2.board
 frozen_manifest = args2.frozen_manifest
 displays = args2.displays
 indevs = args2.indevs
+expanders = args2.expanders
 
 
 if lv_cflags is None:
     lv_cflags = ''
 
 
-argParser = ArgumentParser(prefix_chars='-')
-argParser.add_argument(
-    '--LVGL_API',
-    dest='lvgl_api',
-    help=(
-        'Sets the API to be used. If this flag gets set '
-        'then the api that is used is the same as what the C API is for LVGL.'
-    ),
-    action='store_true',
-    default=False
-)
-
-args3, extra_args = argParser.parse_known_args(extra_args)
-
-lvgl_api = args3.lvgl_api
-
 extra_args.append(f'FROZEN_MANIFEST="{SCRIPT_DIR}/build/manifest.py"')
-
-if lvgl_api:
-    extra_args.append(f'GEN_SCRIPT=lvgl')
-else:
-    extra_args.append(f'GEN_SCRIPT=python')
+extra_args.append(f'GEN_SCRIPT=python')
 
 
 if lv_cflags is not None:
@@ -137,7 +131,6 @@ if lv_cflags is not None:
 
 
 def get_submodules():
-
     if not os.path.exists(
         os.path.join(SCRIPT_DIR, 'lib/micropython/mpy-cross')
     ):
@@ -196,8 +189,11 @@ if __name__ == '__main__':
     else:
         import builder as mod
 
+    get_submodules()
+
     extra_args, lv_cflags, board = mod.parse_args(extra_args, lv_cflags, board)
-    extra_args = mod.build_commands(target, extra_args, SCRIPT_DIR, lv_cflags, board)
+    extra_args = mod.build_commands(
+        target, extra_args, SCRIPT_DIR, lv_cflags, board)
 
     if clean:
         print('Cleaning build....')
@@ -205,20 +201,20 @@ if __name__ == '__main__':
     else:
         mod.clean()
 
-    get_submodules()
-
-    mod.submodules()
-
     if not os.path.exists('lib/micropython/mpy_cross/build/mpy-cross'):
         print('Compiling mpy-cross....')
         mod.mpy_cross()
+
+    mod.submodules()
 
     print('Generating build files....')
     set_mp_version(target.lower())
 
     mod.build_manifest(
-        target, SCRIPT_DIR, lvgl_api, displays, indevs, frozen_manifest
+        target, SCRIPT_DIR, False, displays,
+        indevs, expanders, frozen_manifest
     )
+
     create_lvgl_header()
 
     print('Compiling....')

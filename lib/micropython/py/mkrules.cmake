@@ -187,7 +187,7 @@ if(MICROPY_FROZEN_MANIFEST)
     # Note: target_compile_definitions already added earlier.
 
     if(NOT MICROPY_LIB_DIR)
-        string(CONCAT GIT_SUBMODULES "${GIT_SUBMODULES} " lib/micropython-lib)
+        #string(CONCAT GIT_SUBMODULES "${GIT_SUBMODULES} " lib/micropython-lib)
         set(MICROPY_LIB_DIR ${MICROPY_DIR}/lib/micropython-lib)
     endif()
 

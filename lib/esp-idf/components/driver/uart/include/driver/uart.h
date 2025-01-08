@@ -1,14 +1,10 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include "esp_err.h"
 #include "esp_intr_alloc.h"
@@ -19,6 +15,10 @@ extern "C" {
 #include "freertos/queue.h"
 #include "freertos/ringbuf.h"
 #include "hal/uart_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* @brief When calling `uart_set_pin`, instead of GPIO number, `UART_PIN_NO_CHANGE`
  *        can be provided to keep the currently allocated pin.
@@ -49,6 +49,11 @@ typedef struct {
         lp_uart_sclk_t lp_source_clk;       /*!< LP_UART source clock selection */
 #endif
     };
+    struct {
+        uint32_t backup_before_sleep: 1;    /*!< If set, the driver will backup/restore the HP UART registers before entering/after exiting sleep mode.
+                                                 By this approach, the system can power off HP UART's power domain.
+                                                 This can save power, but at the expense of more RAM being consumed */
+    } flags;                                /*!< Configuration flags */
 } uart_config_t;
 
 /**

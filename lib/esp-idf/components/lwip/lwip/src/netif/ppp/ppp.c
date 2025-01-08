@@ -1109,12 +1109,23 @@ int cifproxyarp(ppp_pcb *pcb, u32_t his_adr) {
  */
 int sdns(ppp_pcb *pcb, u32_t ns1, u32_t ns2) {
   ip_addr_t ns;
+#if !LWIP_DNS_SETSERVER_WITH_NETIF
   LWIP_UNUSED_ARG(pcb);
+#endif
 
   ip_addr_set_ip4_u32_val(ns, ns1);
+#if LWIP_DNS_SETSERVER_WITH_NETIF
+  dns_setserver_with_netif(pcb->netif, 0, &ns);
+#else
   dns_setserver(0, &ns);
+#endif
+
   ip_addr_set_ip4_u32_val(ns, ns2);
+#if LWIP_DNS_SETSERVER_WITH_NETIF
+  dns_setserver_with_netif(pcb->netif, 1, &ns);
+#else
   dns_setserver(1, &ns);
+#endif
   return 1;
 }
 
@@ -1125,17 +1136,27 @@ int sdns(ppp_pcb *pcb, u32_t ns1, u32_t ns2) {
 int cdns(ppp_pcb *pcb, u32_t ns1, u32_t ns2) {
   const ip_addr_t *nsa;
   ip_addr_t nsb;
+#if !LWIP_DNS_SETSERVER_WITH_NETIF
   LWIP_UNUSED_ARG(pcb);
+#endif
 
   nsa = dns_getserver(0);
   ip_addr_set_ip4_u32_val(nsb, ns1);
   if (ip_addr_cmp(nsa, &nsb)) {
+#if LWIP_DNS_SETSERVER_WITH_NETIF
+    dns_setserver_with_netif(pcb->netif, 0, IP_ADDR_ANY);
+#else
     dns_setserver(0, IP_ADDR_ANY);
+#endif
   }
   nsa = dns_getserver(1);
   ip_addr_set_ip4_u32_val(nsb, ns2);
   if (ip_addr_cmp(nsa, &nsb)) {
+#if LWIP_DNS_SETSERVER_WITH_NETIF
+    dns_setserver_with_netif(pcb->netif, 1, IP_ADDR_ANY);
+#else
     dns_setserver(1, IP_ADDR_ANY);
+#endif
   }
   return 1;
 }

@@ -12,6 +12,7 @@ Usage : `br [command] ...`
 - [nat64prefix](#nat64prefix)
 - [omrprefix](#omrprefix)
 - [onlinkprefix](#onlinkprefix)
+- [pd](#pd)
 - [prefixtable](#prefixtable)
 - [rioprf](#rioprf)
 - [routeprf](#routeprf)
@@ -33,7 +34,9 @@ disable
 enable
 omrprefix
 onlinkprefix
+pd
 prefixtable
+raoptions
 rioprf
 routeprf
 routers
@@ -176,6 +179,48 @@ fd14:1078:b3d5:b0b0:0:0::/96
 Done
 ```
 
+### pd
+
+Usage: `br pd [enable|disable]`
+
+Enable/Disable the DHCPv6 PD.
+
+```bash
+> br pd enable
+Done
+
+> br pd disable
+Done
+```
+
+Usage: `br pd state`
+
+Get the state of DHCPv6 PD.
+
+`OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE` is required.
+
+- `disabled`: DHCPv6 PD is disabled on the border router.
+- `stopped`: DHCPv6 PD in enabled but won't try to request and publish a prefix.
+- `running`: DHCPv6 PD is enabled and will try to request and publish a prefix.
+
+```bash
+> br pd state
+running
+Done
+```
+
+Usage `br pd omrprefix`
+
+Get the DHCPv6 Prefix Delegation (PD) provided off-mesh-routable (OMR) prefix.
+
+`OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE` is required.
+
+```bash
+> br pd omrprefix
+2001:db8:cafe:0:0/64 lifetime:1800 preferred:1800
+Done
+```
+
 ### prefixtable
 
 Usage: `br prefixtable`
@@ -200,6 +245,28 @@ Info per prefix entry:
 > br prefixtable
 prefix:fd00:1234:5678:0::/64, on-link:no, ms-since-rx:29526, lifetime:1800, route-prf:med, router:ff02:0:0:0:0:0:0:1 (M:0 O:0 Stub:1)
 prefix:1200:abba:baba:0::/64, on-link:yes, ms-since-rx:29527, lifetime:1800, preferred:1800, router:ff02:0:0:0:0:0:0:1 (M:0 O:0 Stub:1)
+Done
+```
+
+### raoptions
+
+Usage: `br raoptions <options>`
+
+Sets additional options to append at the end of emitted Router Advertisement (RA) messages. `<options>` provided as hex bytes.
+
+```bash
+> br raoptions 0400ff00020001
+Done
+```
+
+### raoptions clear
+
+Usage: `br raoptions clear`
+
+Clear any previously set additional options to append at the end of emitted Router Advertisement (RA) messages.
+
+```bash
+> br raoptions clear
 Done
 ```
 
@@ -284,9 +351,14 @@ Info per router:
   - M: Managed Address Config flag
   - O: Other Config flag
   - Stub: Stub Router flag (indicates whether the router is a stub router)
+- Milliseconds since last received message from this router
+- Reachability flag: A router is marked as unreachable if it fails to respond to multiple Neighbor Solicitation probes.
+- Age: Duration interval since this router was first discovered. It is formatted as `{hh}:{mm}:{ss}` for hours, minutes, seconds, if the duration is less than 24 hours. If the duration is 24 hours or more, the format is `{dd}d.{hh}:{mm}:{ss}` for days, hours, minutes, seconds.
+- `(this BR)` is appended when the router is the local device itself.
+- `(peer BR)` is appended when the router is likely a peer BR connected to the same Thread mesh. This requires `OPENTHREAD_CONFIG_BORDER_ROUTING_TRACK_PEER_BR_INFO_ENABLE`.
 
 ```bash
 > br routers
-ff02:0:0:0:0:0:0:1 (M:0 O:0 Stub:1)
+ff02:0:0:0:0:0:0:1 (M:0 O:0 Stub:1) ms-since-rx:1505 reachable:yes age:00:18:13
 Done
 ```

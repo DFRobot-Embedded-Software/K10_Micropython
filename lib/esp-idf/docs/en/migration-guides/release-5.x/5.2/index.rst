@@ -7,6 +7,7 @@ Migration from 5.1 to 5.2
     :maxdepth: 1
 
     gcc
+    :SOC_IEEE802154_SUPPORTED: ieee802154
     peripherals
     protocols
     storage

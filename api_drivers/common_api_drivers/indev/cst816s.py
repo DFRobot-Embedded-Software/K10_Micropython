@@ -1,3 +1,5 @@
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 from micropython import const  # NOQA
 import pointer_framework
 import time
@@ -157,7 +159,7 @@ class CST816S(pointer_framework.PointerDriver):
         self._tx_buf[0] = reg
         self._rx_buf[0] = 0x00
 
-        self._device.write_readinto(self._tx_mv[:1], self._rx_mv)
+        self._device.write_readinto(self._tx_mv[:1], self._rx_mv[:1])
 
     def _write_reg(self, reg, value):
         self._tx_buf[0] = reg
@@ -179,11 +181,16 @@ class CST816S(pointer_framework.PointerDriver):
 
         self._device = device
 
-        if reset_pin is None:
-            self._reset_pin = None
+        if not isinstance(reset_pin, int):
+            self._reset_pin = reset_pin
         else:
             self._reset_pin = machine.Pin(reset_pin, machine.Pin.OUT)
+
+        if self._reset_pin:
             self._reset_pin.value(1)
+
+        self.hw_reset()
+        self.auto_sleep = False
 
         self._read_reg(_ChipID)
         print('Chip ID:', hex(self._rx_buf[0]))

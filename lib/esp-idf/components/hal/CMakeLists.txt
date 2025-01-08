@@ -4,7 +4,7 @@ set(srcs "hal_utils.c")
 set(includes "platform_port/include")
 
 # target specific include must be added before the generic one
-# becuase of the "include_next" directive used by the efuse_hal.h
+# because of the "include_next" directive used by the efuse_hal.h
 if(NOT ${target} STREQUAL "linux")
     list(APPEND includes "${target}/include")
 endif()
@@ -234,6 +234,16 @@ if(NOT BOOTLOADER_BUILD)
         list(APPEND srcs "huk_hal.c")
     endif()
 
+    if(CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED)
+        list(APPEND srcs "usb_serial_jtag_hal.c")
+    endif()
+
+    if(CONFIG_SOC_USB_OTG_SUPPORTED)
+        list(APPEND srcs
+                    "usb_dwc_hal.c"
+                    "usb_wrap_hal.c")
+    endif()
+
     if(${target} STREQUAL "esp32")
         list(APPEND srcs
             "touch_sensor_hal.c"
@@ -244,23 +254,17 @@ if(NOT BOOTLOADER_BUILD)
     if(${target} STREQUAL "esp32s2")
         list(APPEND srcs
                     "touch_sensor_hal.c"
-                    "usb_hal.c"
-                    "usb_phy_hal.c"
                     "xt_wdt_hal.c"
                     "esp32s2/cp_dma_hal.c"
-                    "esp32s2/touch_sensor_hal.c"
-                    "usb_dwc_hal.c")
+                    "esp32s2/touch_sensor_hal.c")
     endif()
 
     if(${target} STREQUAL "esp32s3")
         list(APPEND srcs
             "touch_sensor_hal.c"
-            "usb_hal.c"
-            "usb_phy_hal.c"
             "xt_wdt_hal.c"
             "esp32s3/touch_sensor_hal.c"
-            "esp32s3/rtc_cntl_hal.c"
-            "usb_dwc_hal.c")
+            "esp32s3/rtc_cntl_hal.c")
     endif()
 
     if(${target} STREQUAL "esp32c3")

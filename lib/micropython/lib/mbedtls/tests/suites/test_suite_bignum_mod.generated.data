@@ -2187,7 +2187,7 @@ mpi_mod_mul:"0000000000000012":"0000000000000023":"0000000000000045":"0000000000
 
 mbedtls_mpi_mod_mul #423 3 * 3 mod 45
 depends_on:MBEDTLS_HAVE_INT32
-mpi_mod_mul:"00000024":"00000024":"00000045":"00000027"
+mpi_mod_mu,:"00000024":"00000024":"00000045":"00000027"
 
 mbedtls_mpi_mod_mul #424 3 * 3 mod 45
 depends_on:MBEDTLS_HAVE_INT64

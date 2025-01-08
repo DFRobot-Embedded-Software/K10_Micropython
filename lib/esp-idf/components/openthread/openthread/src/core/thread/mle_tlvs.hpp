@@ -852,6 +852,15 @@ public:
     uint8_t GetActiveRouters(void) const { return mActiveRouters; }
 
     /**
+     * Indicates whether or not the partition is a singleton based on Active Routers value.
+     *
+     * @retval TRUE   The partition is a singleton.
+     * @retval FALSE  The partition is not a singleton.
+     *
+     */
+    bool IsSingleton(void) const { return (mActiveRouters <= 1); }
+
+    /**
      * Sets the Active Routers value.
      *
      * @param[in]  aActiveRouters  The Active Routers value.
@@ -1095,6 +1104,23 @@ public:
      *
      */
     void SetChannel(uint16_t aChannel) { mChannel = BigEndian::HostSwap16(aChannel); }
+
+    /**
+     * Sets the Channel and determines and sets the Channel Page from the given channel.
+     *
+     * @param[in]  aChannel  The Channel value.
+     *
+     */
+    void SetChannelAndPage(uint16_t aChannel);
+
+    /**
+     * Indicates whether or not the Channel and Channel Page values are valid.
+     *
+     * @retval TRUE   If the Channel and Channel Page values are valid.
+     * @retval FALSE  If the Channel and Channel Page values are not valid.
+     *
+     */
+    bool IsValid(void) const;
 
 private:
     uint8_t  mChannelPage;

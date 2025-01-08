@@ -1,3 +1,5 @@
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 import shutil
 import sys
 import os
@@ -53,6 +55,7 @@ def copy_micropy_updates(port):
 
     if port in ('raspberry_pi', 'macOS'):
         port = 'unix'
+        src_path = f'micropy_updates/{port}'
 
     dst_path = f'lib/micropython/ports/{port}'
 
@@ -68,7 +71,8 @@ def copy_micropy_updates(port):
 
                 iter_files(src_file, dst_file, org_file)
             else:
-                shutil.copyfile(dst_file, org_file)
+                if os.path.isfile(dst_file):        # backup file if it exits
+                    shutil.copyfile(dst_file, org_file)
                 shutil.copyfile(src_file, dst_file)
 
     iter_files(src_path, dst_path, org_path)
@@ -146,6 +150,23 @@ def setup_windows_build():
     return _windows_env
 
 
+def get_lvgl_version():
+    with open('lib/lvgl/lv_version.h', 'r') as f:
+        data = f.read()
+
+    data = data.split('LVGL_VERSION_MAJOR', 1)[-1]
+    major, data = [item.strip() for item in data.split('\n', 1)]
+    data = data.split('LVGL_VERSION_MINOR', 1)[-1]
+    minor, data = [item.strip() for item in data.split('\n', 1)]
+    data = data.split('LVGL_VERSION_PATCH', 1)[-1]
+    patch, data = [item.strip() for item in data.split('\n', 1)]
+
+    if not patch:
+        patch = '0'
+
+    return f'{major}.{minor}.{patch}'
+
+
 def set_mp_version(port):
     mpconfigport = f'lib/micropython/ports/{port}/mpconfigport.h'
 
@@ -154,9 +175,10 @@ def set_mp_version(port):
 
     if 'MICROPY_BANNER_NAME_AND_VERSION' not in data:
         data += (
-            '\n\n#include "genhdr/mpversion.h"'
-            '\n\n#define MICROPY_BANNER_NAME_AND_VERSION "LVGL MicroPython '
-            '1.23.0 on " MICROPY_BUILD_DATE\n\n'
+            '\n\n#include "genhdr/mpversion.h"\n\n'
+            '\n\n#define MICROPY_BANNER_NAME_AND_VERSION '
+            f'"LVGL ({get_lvgl_version()}) MicroPython (" MICROPY_VERSION_STRING '
+            f'") Binding compiled on " MICROPY_BUILD_DATE\n\n'
         )
 
         with open(mpconfigport, 'wb') as f:
@@ -189,7 +211,7 @@ def update_mphalport(target):
 
 def generate_manifest(
     script_dir, lvgl_api, manifest_path, displays,
-    indevs, frozen_manifest, *addl_manifest_files
+    indevs, io_expanders, frozen_manifest, *addl_manifest_files
 ):
     addl_manifest_files = list(addl_manifest_files)
 
@@ -219,11 +241,9 @@ def generate_manifest(
         f'{api_path}/frozen/indev/keypad_framework.py',
         f'{api_path}/frozen/indev/pointer_framework.py',
         f'{api_path}/fs_driver.py',
+        f'{api_path}/frozen/io_expander/io_expander_framework.py',
         f'{script_dir}/api_drivers/common_api_drivers/frozen/other/i2c.py',
-        (
-            f'{script_dir}/api_drivers/common_api_drivers/'
-            f'frozen/other/io_expander_framework.py'
-        ),
+
         (
             f'{script_dir}/api_drivers/common_api_drivers/'
             f'frozen/other/task_handler.py'
@@ -248,10 +268,32 @@ def generate_manifest(
         entry = f"freeze('{file_path}', '{file_name}')"
         manifest_files.append(entry)
 
+    for file in io_expanders:
+        if not os.path.exists(file):
+            tmp_file = (
+                f'{script_dir}/api_drivers/common_api_drivers'
+                f'/io_expander/{file.lower()}.py'
+            )
+
+            if not os.path.exists(tmp_file):
+                raise RuntimeError(f'IO Expander not found "{file}"')
+
+            print(tmp_file)
+
+            file_path, file_name = os.path.split(tmp_file)
+            entry = f"freeze('{file_path}', '{file_name}')"
+            manifest_files.append(entry)
+        else:
+            print(file)
+            file_path, file_name = os.path.split(file)
+            entry = f"freeze('{file_path}', '{file_name}')"
+            manifest_files.append(entry)
+
     for file in indevs:
         if not os.path.exists(file):
             tmp_file = (
-                f'{script_dir}/api_drivers/common_api_drivers/indev/{file.lower()}.py'
+                f'{script_dir}/api_drivers/common_api_drivers'
+                f'/indev/{file.lower()}.py'
             )
 
             if not os.path.exists(tmp_file):
@@ -288,7 +330,8 @@ def generate_manifest(
     for file in displays:
         if not os.path.exists(file):
             tmp_file = (
-                f'{script_dir}/api_drivers/common_api_drivers/display/{file.lower()}'
+                f'{script_dir}/api_drivers/common_api_drivers'
+                f'/display/{file.lower()}'
             )
 
             if not os.path.exists(tmp_file):
@@ -332,10 +375,10 @@ def get_lvgl():
 def get_micropython():
 
     cmd_ = [
-        'git submodule updatem --init --depth=1 -- lib/micropython',
+        'git submodule update --init --depth=1 -- lib/micropython',
     ]
     print()
-    print('collecting MicroPython 1.23.0')
+    print('collecting MicroPython 1.24.1')
     result, _ = spawn(cmd_, spinner=True)
     if result != 0:
         sys.exit(result)
@@ -344,17 +387,13 @@ def get_micropython():
     with open(mkrules_path, 'rb') as f:
         data = f.read().decode('utf-8')
 
-    pattern = (
-        '$(Q)git submodule update --init '
-        '$(addprefix $(TOP)/,$(GIT_SUBMODULES))'
-    )
+    pattern = '$(Q)cd $(TOP) && git submodule update --init $(GIT_SUBMODULES)'
+
     if pattern in data:
         data = data.replace(
             pattern,
-            (
-                '$(Q)git submodule update --init --depth=1 '
-                '$(addprefix $(TOP)/,$(GIT_SUBMODULES))'
-            )
+            '$(Q)cd $(TOP) && git submodule '
+            'update --init --depth=1 $(GIT_SUBMODULES)'
         )
         with open(mkrules_path, 'wb') as f:
             f.write(data.encode('utf-8'))
@@ -677,7 +716,7 @@ def mpy_cross():
 
 
 def build_manifest(
-    target, script_dir, lvgl_api, displays, indevs, frozen_manifest
+    target, script_dir, lvgl_api, displays, indevs, expanders, frozen_manifest
 ):
     update_mphalport(target)
     if target == 'teensy':
@@ -689,7 +728,7 @@ def build_manifest(
 
     generate_manifest(
         script_dir, lvgl_api, manifest_path,
-        displays, indevs, frozen_manifest
+        displays, indevs, expanders, frozen_manifest
     )
 
 

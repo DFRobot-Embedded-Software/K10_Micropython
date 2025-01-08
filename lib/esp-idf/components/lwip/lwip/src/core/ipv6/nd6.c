@@ -505,7 +505,16 @@ nd6_input(struct pbuf *p, struct netif *inp)
       /* Sender is trying to resolve our address. */
       /* Verify that they included their own link-layer address. */
       if (lladdr_opt == NULL) {
-        /* Not a valid message. */
+        /* Per RFC4861#section-4.3, source Link-Layer address SHOULD be included in unicast solicitations.
+         * But, there might be some NSs which do not contain source link-layer address option.
+         * For LwIP implement, this kind of NS will be ignored. This issue should be fixed.
+         * Although this Neighbor Solicitation (NS) will be ignored in the subsequent process,
+         * a Neighbor Advertisement (NA) is still sent in response. */
+#if ESP_LWIP && LWIP_FORCE_ROUTER_FORWARDING
+        nd6_send_na(inp, &target_address, ND6_FLAG_ROUTER | ND6_FLAG_SOLICITED | ND6_FLAG_OVERRIDE);
+#else
+        nd6_send_na(inp, &target_address, ND6_FLAG_SOLICITED | ND6_FLAG_OVERRIDE);
+#endif
         pbuf_free(p);
         ND6_STATS_INC(nd6.proterr);
         ND6_STATS_INC(nd6.drop);
@@ -780,14 +789,23 @@ nd6_input(struct pbuf *p, struct netif *inp)
 
             if (htonl(rdnss_opt->lifetime) > 0) {
               /* TODO implement Lifetime > 0 */
+#if LWIP_DNS_SETSERVER_WITH_NETIF
+              dns_setserver_with_netif(inp, rdnss_server_idx++, &rdnss_address);
+#else
               dns_setserver(rdnss_server_idx++, &rdnss_address);
+#endif
+
             } else {
               /* TODO implement DNS removal in dns.c */
               u8_t s;
               for (s = 0; s < DNS_MAX_SERVERS; s++) {
                 const ip_addr_t *addr = dns_getserver(s);
                 if(ip_addr_cmp(addr, &rdnss_address)) {
+#if LWIP_DNS_SETSERVER_WITH_NETIF
+                  dns_setserver_with_netif(inp, s, NULL);
+#else
                   dns_setserver(s, NULL);
+#endif
                 }
               }
             }

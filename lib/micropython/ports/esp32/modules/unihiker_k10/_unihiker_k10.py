@@ -1,21 +1,264 @@
-import gc
-from k10_base import pin, button,Screen,Camera, aht20, Light, accelerometer,Pin,WiFi,MqttClient,Mic,Speaker,TF_card,hid,keycode,pins_k10,I2C,i2c
+from k10_base import pin,button,temp_humi
+from k10_base import Light,Mic,Speaker,TF_card,Screen,Camera,WiFi,MqttClient,Timer,time,Pin
+from k10_base import k10_i2c, pins_remap_k10
 from neopixel import NeoPixel
-from machine import Servo
-from hcsr04 import HCSR04
+from machine import Servo,I2C
+import machine,onewire, struct,task_handler
 from ds18x20 import DS18X20
+from hcsr04 import HCSR04
+from dht import DHT11
 
-import onewire
-import task_handler
-import time
-import machine
-import dht as _dht
-import os
-from machine import Timer
-from mpython import  dfrobot_global_extio_timer_handler
-gc.collect()
-#sd_cs  = machine.Pin(40, machine.Pin.OUT)
 
+'''
+六轴的驱动类
+'''
+class Accelerometer(object):
+    SHANK = 0          # Shake gesture
+    SCREEN_UP = 1       # Screen facing up
+    SCREEN_DOWN = 2     # Screen facing down
+    TILT_LEFT = 3       # Tilt left
+    TILT_RIGHT = 4      # Tilt right
+    TILT_FORWARD = 5    # Tilt forward
+    TILT_BACK = 6       # Tilt backward
+    GESTURE_NONE = 7     # No gesture detected
+    def __init__(self) :
+        self.shake_status = False
+        self._i2c = k10_i2c
+        self._addr = 0x19
+        self._gesture = self.GESTURE_NONE
+        self.X = 0.0
+        self.Y = 0.0
+        self.Z = 0.0
+        self._begin()
+        self._measure()
+
+    def _begin(self):
+        buf = self._read_bytes(0x24, 1)
+        data = buf[0]
+        data |= 0x08
+        self._writeReg(0x24, data)
+
+        data = 0x00
+        data |= 0x40
+        data |= 0x03
+        data |= 0x0C
+        data |= 0x38
+        self._writeReg(0x30, data)
+
+        buf = self._read_bytes(0x21, 1)
+        data = buf[0]
+        data |= 0x81
+        self._writeReg(0x21, data)
+        self._writeReg(0x32, 0x60)
+        self._writeReg(0x33, 0x02)
+
+        buf = self._read_bytes(0x22, 1)
+        data = buf[0]
+        data |= 0x40
+        self._writeReg(0x21, data)
+
+        buf = self._read_bytes(0x24, 1)
+        data = buf[0]
+        data |= 0x02
+        self._writeReg(0x24, data)
+
+        buf = self._read_bytes(0x25, 1)
+        data = buf[0]
+        data |= 0x02
+        self._writeReg(0x25, data)
+
+        data = 0x00
+        data |= 0xc0
+        data |= 0x3f
+        self._writeReg(0x34, data)
+
+        buf = self._read_bytes(0x21, 1)
+        data = buf[0]
+        data |= 0xfd
+        self._writeReg(0x21, data)
+
+        self._writeReg(0x36, 0x18)
+        self._writeReg(0x37, 0x02)
+
+        buf = self._read_bytes(0x25, 1)
+        data = buf[0]
+        data |= 0x20
+        self._writeReg(0x21, data)
+
+        self._read_bytes(0x23, 1)
+        self._writeReg(0x23, 0x88)
+        self._writeReg(0x20, 0x27)
+
+
+    def _read_bytes(self, reg, size):
+        rslt = self._i2c.readfrom_mem(self._addr, reg, size)
+        return rslt
+    def _writeReg(self, reg, value):
+        self._i2c.writeto_mem(self._addr, reg, value.to_bytes(1, 'little'))
+    def _measure(self):
+        tempbuf = self._read_bytes(0x27,1)
+        if (tempbuf[0] & 0x0F) == 0x0F:
+            accbuf = self._read_bytes(0xA8, 6)
+            self.X = (accbuf[1]<<8 | accbuf[0]) >> 4
+            self.Y = (accbuf[3]<<8 | accbuf[2]) >> 4
+            self.Z = (accbuf[5]<<8 | accbuf[4]) >> 4
+            if (self.X & 0x800) == 0x800:
+                self.X -= 4096
+            if (self.Y & 0x800) == 0x800:
+                self.Y -= 4096
+            if (self.Z & 0x800) == 0x800:
+                self.Z -= 4096
+            self.X = self.X / 1024.0
+            self.Y = self.Y / 1024.0
+            self.Z = self.Z / 1024.0
+        tempbuf = self._read_bytes(0x35,1)
+
+        if(tempbuf[0] & 0x60) == 0x60:
+            self._gesture = self.SCREEN_DOWN
+        elif (tempbuf[0] & 0x50) == 0x50:
+            self._gesture = self.SCREEN_UP
+        elif (tempbuf[0] & 0x41) == 0x41:
+            self._gesture = self.TILT_LEFT
+        elif (tempbuf[0] & 0x42) == 0x42:
+            self._gesture = self.TILT_RIGHT
+        elif (tempbuf[0] & 0x44) == 0x44:
+            self._gesture = self.TILT_FORWARD
+        elif (tempbuf[0] & 0x48) == 0x48:
+            self._gesture = self.TILT_BACK
+        elif (tempbuf[0] != 0):
+            self._gesture = self.SHANK
+       
+
+    def x(self):
+        #self.X = _accelerometer.get_x()
+        return self.X
+
+    def y(self):
+        #self.Y = _accelerometer.get_y()
+        return self.Y
+
+    def z(self):
+        #self.Z = _accelerometer.get_z()
+        return self.Z
+
+    def shake(self):
+        return self.shake_status
+
+'''
+为了兼容上层API使用做的类
+'''
+class accelerometer(object):
+    def __init__(self):
+        self.tim_count = 0
+        self._is_shaked = False
+        self._last_x = 0
+        self._last_y = 0
+        self._last_z = 0
+        self._count_shaked = 0
+        self._i2c = k10_i2c
+        devices = self._i2c.scan()
+        #0x19是K10的加速度计地址
+        if 0x19 in devices:
+            #K10
+            self.tim = Timer(17)
+            self.tim.init(period=100, mode=Timer.PERIODIC, callback=self.timer_callback)
+            self.accel_sensor = Accelerometer()
+        else:
+            #K10box
+            self.tim = None
+            self.accel_sensor = None
+
+    def timer_callback(self,_):
+        self.tim_count += 1 
+        try:
+            self.accelerometer_callback()
+        except Exception as e:
+            print(str(e))
+        if(self.tim_count==200):
+            self.tim_count = 0
+
+    def accelerometer_callback(self):
+        '''加速度计'''
+        if self._is_shaked:
+            self._count_shaked += 1
+            if self._count_shaked == 5: 
+                self._count_shaked = 0
+                self.accel_sensor.shake_status = False
+        self.accel_sensor._measure()
+        x=self.accel_sensor.x(); y=self.accel_sensor.y();z=self.accel_sensor.z()
+        if self._last_x == 0 and self._last_y == 0 and self._last_z == 0:
+            self._last_x = x; 
+            self._last_y = y; 
+            self._last_z = z; 
+            self.accel_sensor.shake_status = False
+            return
+        diff_x = x - self._last_x; diff_y = y - self._last_y; diff_z = z - self._last_z
+        self._last_x = x; self.last_y = y; self._last_z = z
+        if self._count_shaked > 0: 
+            return
+        self._is_shaked = (diff_x * diff_x + diff_y * diff_y + diff_z * diff_z > 1)
+        if self._is_shaked: 
+            self.accel_sensor.shake_status = True
+        
+    def X(self):
+        return self.accel_sensor.x()
+    
+    def Y(self):
+        return self.accel_sensor.y()
+    
+    def Z(self):
+        return self.accel_sensor.z()
+    
+    def read_x(self):
+        return self.accel_sensor.x()
+    
+    def read_y(self):
+        return self.accel_sensor.y()
+    
+    def read_z(self):
+        return self.accel_sensor.z()
+    
+    def shake(self):
+        return self.accel_sensor.shake()
+    def gesture(self):
+        return self.accel_sensor._gesture
+    def status(self,status=""):
+        if status is "forward":
+            if self.gesture() == self.accel_sensor.TILT_FORWARD:
+                return True
+            else:
+                return False
+        elif status is "back":
+            if self.gesture() == self.accel_sensor.TILT_BACK:
+                return True
+            else:
+                return False
+        elif status is "left":
+            if self.gesture() == self.accel_sensor.TILT_LEFT:
+                return True
+            else:
+                return False
+        elif status is "right":
+            if self.gesture() == self.accel_sensor.TILT_RIGHT:
+                return True
+            else:
+                return False
+        elif status is "up":
+            if self.gesture() == self.accel_sensor.SCREEN_UP:
+                return True
+            else:
+                return False
+        elif status is "down":
+            if self.gesture() == self.accel_sensor.SCREEN_DOWN:
+                return True
+            else:
+                return False
+        else:
+            return False
+
+'''
+k10的板载2812灯的控制类(灯的定义顺序是反的)
+'''
 class rgb_board():
     def __init__(self,pin=None):
         self.my_rgb = NeoPixel(Pin(46, Pin.OUT), n=10, bpp=3, timing=1)
@@ -54,43 +297,8 @@ class rgb_board():
         self.my_rgb.write()
         time.sleep(0.001)
 
-
-
-class neopixel():
-    def __init__(self, io, n, bpp=3, timing=1):
-        '''
-        if isinstance(io, pin):
-            self.pin = pins_k10[io.pin_num]
-        else:
-            self.pin = io
-        '''
-        if io > 20:
-            self.pin = io
-        else:
-            self.pin = pins_k10[io]
-        #pins_k10[pin]
-        self.my_rgb = NeoPixel(Pin(self.pin, Pin.OUT), n, bpp, timing)
-        self.bright = 9
-
-    def brightness(self,bright=9):
-        if bright <= 9 and bright >= 0:
-            self.bright = bright
-
-    def write(self,begin,end,R=0,G=0,B=0):
-        self.r = int(R/(10-self.bright))
-        self.g = int(G/(10-self.bright))
-        self.b = int(B/(10-self.bright))
-        for i in range(begin,end+1):
-            self.my_rgb[i] = (self.r, self.g, self.b)
-            self.my_rgb.write()
-            time.sleep(0.001)        
-        
-    def clear(self):
-        self.my_rgb.fill((0,0,0))
-        self.my_rgb.write()
-        time.sleep(0.001)
 '''
-继承舵机
+外置舵机驱动类
 '''
 class servo(Servo):
     def __init__(self,pin):
@@ -105,11 +313,11 @@ class servo(Servo):
         self.write_angle(value)
 
 '''
-DS18b20
+外置18B20温度传感器驱动类
 '''
-class ds18b20():
+class ds18b20(object):
     def __init__(self, pin):
-        self._pin = pins_k10[pin]
+        self._pin = pins_remap_k10[pin]
         self.dat = Pin(self._pin)
    
     def read(self):
@@ -124,109 +332,9 @@ class ds18b20():
         # print(temp,end='℃\n ')
         return temp
 
-class sen0388(object):
-    def __init__(self, d_pin, echo_timeout_us=500*2*30):
-        """
-        trigger_pin: Output pin to send pulses
-        echo_pin: Readonly pin to measure the distance. The pin should be protected with 1k resistor
-        echo_timeout_us: Timeout in microseconds to listen to echo pin. 
-        By default is based in sensor limit range (4m)
-        """
-        self.echo_timeout_us = echo_timeout_us
-        self._pin = d_pin
-        # Init trigger pin (out)
-        self.trigger = Pin(self._pin, mode=Pin.OUT, pull=None)
-        self.trigger.value(0)
-
-        # Init echo pin (in)
-        #self.echo = Pin(echo_pin, mode=Pin.IN, pull=None)
-        self.__limit = 500    #cm
-
-    def _send_pulse_and_wait(self):
-        self.trigger = Pin(self._pin, mode=Pin.OUT, pull=None)
-        self.trigger.value(0) # Stabilize the sensor
-        time.sleep_us(5)
-        self.trigger.value(1)
-        # Send a 10us pulse.
-        time.sleep_us(10)
-        self.trigger.value(0)
-        # try:
-        self.echo = Pin(self._pin, mode=Pin.IN, pull=None)
-        pulse_time = machine.time_pulse_us(self.echo, 1, self.echo_timeout_us)
-        return pulse_time
-
-    def distance_mm(self):
-        """
-        Get the distance in milimeters without floating point operations.
-        """
-        pulse_time = self._send_pulse_and_wait()
-
-        # To calculate the distance we get the pulse_time and divide it by 2 
-        # (the pulse walk the distance twice) and by 29.1 becasue
-        # the sound speed on air (343.2 m/s), that It's equivalent to
-        # 0.34320 mm/us that is 1mm each 2.91us
-        # pulse_time // 2 // 2.91 -> pulse_time // 5.82 -> pulse_time * 100 // 582 
-        if pulse_time != (-1 or -2):
-            mm = pulse_time * 100 // 582
-            return mm
-        else:
-            return self.__limit*10
-
-    def distance_cm(self):
-        """
-        Get the distance in centimeters with floating point operations.
-        It returns a float
-        """
-        pulse_time = self._send_pulse_and_wait()
-
-        # To calculate the distance we get the pulse_time and divide it by 2 
-        # (the pulse walk the distance twice) and by 29.1 becasue
-        # the sound speed on air (343.2 m/s), that It's equivalent to
-        # 0.034320 cm/us that is 1cm each 29.1us
-        if pulse_time != (-1 or -2):
-            cms = (pulse_time / 2) / 29.1
-            return cms
-        else:
-            return self.__limit
-
-class ultrasonic(HCSR04):
-    def __init__(self, trig=1, echo=0):
-        self._trig = pins_k10[trig]
-        self._echo = pins_k10[echo]
-        if(trig != echo):
-            self.dev = HCSR04(trigger_pin=self._trig, echo_pin=self._echo)
-        else:
-            #使用SEN0388
-            self.dev = sen0388(d_pin=self._trig)
-
-
-    def distance(self):
-        return self.dev.distance_cm()
-
-
-
-class _dht11():
-    def __init__(self, pin):
-        self._pin = pins_k10[pin]
-        self.dht11 = _dht.DHT11(Pin(self._pin))
-        self.dht11.measure()
-    def read(self):
-        self.dht11.measure()
-        return self.dht11.temperature(),self.dht11.humidity()
-    
-dht11_old_pin = None
-dht11_thing = None
-def dht(pin):
-    global dht11_old_pin,dht11_thing
-    if dht11_old_pin != pin:
-        dht11_thing = _dht11(pin)
-        dht11_old_pin = pin
-    return dht11_thing
-
 '''
-KIT0176 HX
+外置重量传感器hx711驱动类
 '''
-
 class hx711(object):
     REG_DATA_GET_RAM_DATA      = 0x66  #Get sensor raw data
     REG_DATA_GET_CALIBRATION   = 0x67  #Gets the automatic calibration value
@@ -236,7 +344,7 @@ class hx711(object):
     REG_SET_TRIGGER_WEIGHT     = 0x72  #Set calibration weight
     _calibration = 2210.0
     _offset = 0
-    def __init__(self, address = 0x64, i2c=i2c):
+    def __init__(self, address = 0x64, i2c=k10_i2c):
         self._i2c = i2c
         self._address = address
         self._i2c.writeto(self._address, bytearray([0x70,0x65]))
@@ -317,7 +425,7 @@ class hx711(object):
         return ((value - self._offset)/self._calibration) 
     
     def common_measure(self):
-        return self.read_weight(10)
+        return self.read_weight(10)    
 
 '''
 重力传感器
@@ -325,10 +433,10 @@ class hx711(object):
 class force(object):
     def __init__(self, sda=20, scl=19):
         self._zero_scale = 0
-        _sda = pins_k10[sda]
-        _scl = pins_k10[scl]
+        _sda = pins_remap_k10[sda]
+        _scl = pins_remap_k10[scl]
         if(sda==20 or scl==19):
-            self.i2c = i2c
+            self.i2c = k10_i2c
             self.dev = hx711(address=0x64, i2c=self.i2c)
         else:
             self.i2c = I2C(scl=Pin(_scl), sda=Pin(_sda), freq=400000)
@@ -351,48 +459,109 @@ class force(object):
         else:
             return None
 
+'''
+外置超声波驱动类
+'''
+class sen0388(object):
+    def __init__(self, d_pin, echo_timeout_us=500*2*30):
+        """
+        trigger_pin: Output pin to send pulses
+        echo_pin: Readonly pin to measure the distance. The pin should be protected with 1k resistor
+        echo_timeout_us: Timeout in microseconds to listen to echo pin. 
+        By default is based in sensor limit range (4m)
+        """
+        self.echo_timeout_us = echo_timeout_us
+        self._pin = d_pin
+        # Init trigger pin (out)
+        self.trigger = Pin(self._pin, mode=Pin.OUT, pull=None)
+        self.trigger.value(0)
 
-class _myTimer(object):
-    def __init__(self, temp, acc=None, exio=None):
-        self.tim = Timer(18)
-        self.tim.init(period=50, mode=Timer.PERIODIC, callback=self.timer_callback)
-        self.num = 0
-        self.temp = temp
-        self.acc = acc
-        self.exio = exio
-        pass
-    def timer_callback(self,_):
-        #50毫秒进行一次IO扩展的操作
-        self.num += 1
-        dfrobot_global_extio_timer_handler(_)
-        #100ms执行另外一个任务
-        if self.num % 2 == 0:
-            pass
-        #1000ms读取一次温湿度
-        if self.num % 20 == 0:
-            if isinstance(self.temp, aht20):
-                self.temp.measure()
-        if self.num >= 20:
-            self.num = 0
-temp_humi = aht20()
-k10_measure_timer = _myTimer(temp = temp_humi)
+        # Init echo pin (in)
+        #self.echo = Pin(echo_pin, mode=Pin.IN, pull=None)
+        self.__limit = 500    #cm
 
-screen = Screen()
-camera = Camera()
+    def _send_pulse_and_wait(self):
+        self.trigger = Pin(self._pin, mode=Pin.OUT, pull=None)
+        self.trigger.value(0) # Stabilize the sensor
+        time.sleep_us(5)
+        self.trigger.value(1)
+        # Send a 10us pulse.
+        time.sleep_us(10)
+        self.trigger.value(0)
+        # try:
+        self.echo = Pin(self._pin, mode=Pin.IN, pull=None)
+        pulse_time = machine.time_pulse_us(self.echo, 1, self.echo_timeout_us)
+        return pulse_time
+
+    def distance_mm(self):
+        """
+        Get the distance in milimeters without floating point operations.
+        """
+        pulse_time = self._send_pulse_and_wait()
+
+        # To calculate the distance we get the pulse_time and divide it by 2 
+        # (the pulse walk the distance twice) and by 29.1 becasue
+        # the sound speed on air (343.2 m/s), that It's equivalent to
+        # 0.34320 mm/us that is 1mm each 2.91us
+        # pulse_time // 2 // 2.91 -> pulse_time // 5.82 -> pulse_time * 100 // 582 
+        if pulse_time != (-1 or -2):
+            mm = pulse_time * 100 // 582
+            return mm
+        else:
+            return self.__limit*10
+
+    def distance_cm(self):
+        """
+        Get the distance in centimeters with floating point operations.
+        It returns a float
+        """
+        pulse_time = self._send_pulse_and_wait()
+
+        # To calculate the distance we get the pulse_time and divide it by 2 
+        # (the pulse walk the distance twice) and by 29.1 becasue
+        # the sound speed on air (343.2 m/s), that It's equivalent to
+        # 0.034320 cm/us that is 1cm each 29.1us
+        if pulse_time != (-1 or -2):
+            cms = (pulse_time / 2) / 29.1
+            return cms
+        else:
+            return self.__limit
+
+class ultrasonic(HCSR04):
+    def __init__(self, trig=1, echo=0):
+        self._trig = pins_remap_k10[trig]
+        self._echo = pins_remap_k10[echo]
+        if(trig != echo):
+            self.dev = HCSR04(trigger_pin=self._trig, echo_pin=self._echo)
+        else:
+            #使用SEN0388
+            self.dev = sen0388(d_pin=self._trig)
 
 
+    def distance(self):
+        return self.dev.distance_cm()
+
+'''
+外置dht11温湿度传感器驱动类
+'''
+class dht(object):
+    def __init__(self,pin):
+        self._pin = pins_remap_k10[pin]
+        self._dht = DHT11(Pin(self._pin))
+        self._dht.measure()
+    def read(self):
+        self._dht.measure()
+        return self._dht.temperature(),self._dht.humidity()
 
 light = Light()
-acce = accelerometer()
-
-rgb = rgb_board()
-wifi = WiFi()
-mqttclient = MqttClient()
 mic = Mic()
 speaker = Speaker()
 tf_card = TF_card()
+screen = Screen()
+camera = Camera()
+wifi = WiFi()
+mqttclient = MqttClient()
+acce = accelerometer()
+rgb = rgb_board()
 
-#th = task_handler.TaskHandler(timer_id = 14)
 th = task_handler.TaskHandler()
-
-#用来定时读取需要频繁读取的东西(IO扩展、温湿度、加速度计等)

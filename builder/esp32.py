@@ -1,6 +1,9 @@
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 import os
 import shutil
 import sys
+import json
 from argparse import ArgumentParser
 from . import spawn
 from . import generate_manifest
@@ -155,7 +158,7 @@ def get_espidf():
         ]
     ]
     print()
-    print(f'collecting ESP-IDF v{IDF_VER}')
+    print(f'collecting ESP-IDF v5.2.3')
     print('this might take a while...')
     result, _ = spawn(cmd, spinner=True)
     if result != 0:
@@ -174,13 +177,123 @@ deploy = False
 PORT = None
 BAUD = 460800
 ccache = False
-usb_otg = False
-usb_jtag = False
+enable_cdc_repl: str = None
+enable_jtag_repl: str = None
+enable_uart_repl: str = None
+uart_repl_bitrate = 115200
+
 optimize_size = False
 ota = False
+components = []
+user_c_modules = []
 
 dual_core_threads = False
 task_stack_size = 16 * 1024
+
+custom_board_path = None
+
+
+def get_mcu():
+    path = f'lib/micropython/ports/esp32/boards/{board}/board.json'
+    if os.path.exists(path):
+        with open(path, 'rb') as f:
+            data = f.read().decode('utf-8')
+
+        data = json.loads(data)
+        if 'mcu' not in data:
+            raise RuntimeError('"board.json" has no "mcu" definition')
+        return data['mcu']
+
+    raise RuntimeError('board definition does not have a "board.json" file')
+
+
+def repl_args(extra_args):
+    if custom_board_path is not None:
+        return extra_args
+
+    global enable_uart_repl
+    global uart_repl_bitrate
+    global enable_cdc_repl
+    global enable_jtag_repl
+
+    mcu = get_mcu()
+
+    esp_argParser = ArgumentParser(prefix_chars='-')
+
+    esp_argParser.add_argument(
+        '--enable-uart-repl',
+        dest='enable_uart_repl',
+        choices=('y', 'Y', 'n', 'N'),
+        default=None,
+        action='store'
+    )
+    esp_argParser.add_argument(
+        '--uart-repl-bitrate',
+        dest='uart_repl_bitrate',
+        default=115200,
+        type=int,
+        action='store'
+    )
+
+    if mcu in ('esp32s3', 'esp32s2', 'esp32c3', 'esp32c6'):
+        esp_argParser.add_argument(
+            '--enable-cdc-repl',
+            dest='enable_cdc_repl',
+            choices=('y', 'Y', 'n', 'N'),
+            default=None,
+            action='store'
+        )
+        esp_argParser.add_argument(
+            '--enable-jtag-repl',
+            dest='enable_jtag_repl',
+            choices=('y', 'Y', 'n', 'N'),
+            default=None,
+            action='store'
+        )
+
+    esp_args, extra_args = esp_argParser.parse_known_args(extra_args)
+
+    enable_uart_repl = esp_args.enable_uart_repl
+    uart_repl_bitrate = esp_args.uart_repl_bitrate
+
+    if mcu in ('esp32s3', 'esp32s2', 'esp32c3', 'esp32c6'):
+        enable_cdc_repl = esp_args.enable_cdc_repl
+        enable_jtag_repl = esp_args.enable_jtag_repl
+
+        if enable_cdc_repl is not None and enable_jtag_repl is not None:
+            if (
+                enable_cdc_repl.lower() == 'y' and
+                enable_jtag_repl.lower() == 'y'
+            ):
+                raise RuntimeError(
+                    'You cannot use both --enable-cdc-repl and '
+                    '--enable-jtag-repl'
+                )
+
+            if enable_uart_repl is not None:
+                if (
+                    enable_cdc_repl.lower() == 'n' and
+                    enable_jtag_repl.lower() == 'n' and
+                    enable_uart_repl.lower() == 'n'
+                ):
+                    res = input(
+                        'WARNING: No hardware output enabled for '
+                        'the REPL would you like to proceed?? (y/n)')
+                    if res.lower() != 'y':
+                        sys.exit()
+    else:
+        if (
+            enable_uart_repl is not None and
+            enable_uart_repl.lower() == 'n'
+        ):
+            res = input(
+                'WARNING: No hardware output enabled for '
+                'the REPL would you like to proceed?? (y/n)'
+            )
+            if res.lower() != 'y':
+                sys.exit()
+
+    return extra_args
 
 
 def common_args(extra_args):
@@ -197,6 +310,8 @@ def common_args(extra_args):
     global ota
     global dual_core_threads
     global task_stack_size
+    global components
+    global user_c_modules
 
     if board == 'ARDUINO_NANO_ESP32':
         raise RuntimeError('Board is not currently supported')
@@ -214,7 +329,7 @@ def common_args(extra_args):
     else:
         def_flash_size = 4
 
-    esp_argParser = ArgumentParser(prefix_chars='-BPd')
+    esp_argParser = ArgumentParser(prefix_chars='-BPdCU')
     esp_argParser.add_argument(
         'BAUD',
         dest='baud',
@@ -235,49 +350,8 @@ def common_args(extra_args):
         action='store_true'
     )
     esp_argParser.add_argument(
-        '--skip-partition-resize',
-        dest='skip_partition_resize',
-        default=False,
-        action='store_true'
-    )
-    esp_argParser.add_argument(
-        '--partition-size',
-        dest='partition_size',
-        default=-1,
-        type=int,
-        action='store'
-    )
-    esp_argParser.add_argument(
-        '--optimize-size',
-        dest='optimize_size',
-        default=False,
-        action='store_true'
-    )
-    esp_argParser.add_argument(
-        '--debug',
-        dest='debug',
-        default=False,
-        action='store_true'
-    )
-    esp_argParser.add_argument(
         '--ccache',
         dest='ccache',
-        default=False,
-        action='store_true'
-    )
-
-    esp_argParser.add_argument(
-        '--flash-size',
-        dest='flash_size',
-        help='flash size',
-        choices=(4, 8, 16, 32, 64, 128),
-        default=def_flash_size,
-        type=int,
-        action='store'
-    )
-    esp_argParser.add_argument(
-        '--ota',
-        dest='ota',
         default=False,
         action='store_true'
     )
@@ -288,7 +362,6 @@ def common_args(extra_args):
         default=False,
         action='store_true'
     )
-
     esp_argParser.add_argument(
         '--task-stack-size',
         dest='task_stack_size',
@@ -296,30 +369,99 @@ def common_args(extra_args):
         type=int,
         action='store'
     )
+    esp_argParser.add_argument(
+        'COMPONENT',
+        dest='components',
+        help=(
+            'Component you want to add from the esp component registry\n'
+            'the format needs to be as follows\n'
+            'COMPONENT="espressif/esp32-camera^2.0.15"'
+        ),
+        action='append',
+        default=[]
+    )
+    esp_argParser.add_argument(
+        'USER_C_MODULE',
+        dest='user_c_modules',
+        action='append',
+        default=[]
+    )
+
+    if custom_board_path is None:
+        esp_argParser.add_argument(
+            '--skip-partition-resize',
+            dest='skip_partition_resize',
+            default=False,
+            action='store_true'
+        )
+        esp_argParser.add_argument(
+            '--partition-size',
+            dest='partition_size',
+            default=-1,
+            type=int,
+            action='store'
+        )
+        esp_argParser.add_argument(
+            '--optimize-size',
+            dest='optimize_size',
+            default=False,
+            action='store_true'
+        )
+        esp_argParser.add_argument(
+            '--debug',
+            dest='debug',
+            default=False,
+            action='store_true'
+        )
+
+        esp_argParser.add_argument(
+            '--flash-size',
+            dest='flash_size',
+            help='flash size',
+            choices=(4, 8, 16, 32, 64, 128),
+            default=def_flash_size,
+            type=int,
+            action='store'
+        )
+        esp_argParser.add_argument(
+            '--ota',
+            dest='ota',
+            default=False,
+            action='store_true'
+        )
 
     esp_args, extra_args = esp_argParser.parse_known_args(extra_args)
 
     BAUD = esp_args.baud
     PORT = esp_args.port
     deploy = esp_args.deploy
-    skip_partition_resize = esp_args.skip_partition_resize
-    partition_size = esp_args.partition_size
     ccache = esp_args.ccache
-    DEBUG = esp_args.debug
-    flash_size = esp_args.flash_size
-    optimize_size = esp_args.optimize_size
-    ota = esp_args.ota
     dual_core_threads = esp_args.dual_core_threads
     task_stack_size = esp_args.task_stack_size
+    components = esp_args.components
+    user_c_modules = esp_args.user_c_modules
+
+    if custom_board_path is None:
+        skip_partition_resize = esp_args.skip_partition_resize
+        partition_size = esp_args.partition_size
+        flash_size = esp_args.flash_size
+        optimize_size = esp_args.optimize_size
+        ota = esp_args.ota
+        DEBUG = esp_args.debug
 
     return extra_args
 
 
+optimum_fb_size = '0'
+
+
 def esp32_s3_args(extra_args):
+    if custom_board_path is not None:
+        return extra_args
+
     global oct_flash
-    global usb_otg
-    global usb_jtag
     global board_variant
+    global optimum_fb_size
 
     esp_argParser = ArgumentParser(prefix_chars='-B')
 
@@ -330,70 +472,34 @@ def esp32_s3_args(extra_args):
         action='store'
     )
     esp_argParser.add_argument(
-        '--usb-otg',
-        dest='usb_otg',
-        default=False,
-        action='store_true'
-    )
-
-    esp_argParser.add_argument(
-        '--usb-jtag',
-        dest='usb_jtag',
-        default=False,
-        action='store_true'
-    )
-
-    esp_argParser.add_argument(
         '--octal-flash',
         help='octal spi flash',
         dest='oct_flash',
         action='store_true'
     )
 
+    esp_argParser.add_argument(
+        '--enable_fb_test',
+        dest='optimum_fb_size',
+        default=False,
+        action='store_true'
+    )
+
     esp_args, extra_args = esp_argParser.parse_known_args(extra_args)
 
     oct_flash = esp_args.oct_flash
-    usb_otg = esp_args.usb_otg
-    usb_jtag = esp_args.usb_jtag
     board_variant = esp_args.board_variant
+    optimum_fb_size = str(int(esp_args.optimum_fb_size))
 
-    return extra_args
+    os.environ['EXTRA_CFLAGS'] = f'-DLCD_RGB_OPTIMUM_FB_SIZE={optimum_fb_size}'
 
-
-def esp32_s2_args(extra_args):
-    global usb_otg
-    global usb_jtag
-
-    esp_argParser = ArgumentParser(prefix_chars='-')
-    esp_argParser.add_argument(
-        '--usb-otg',
-        dest='usb_otg',
-        default=False,
-        action='store_true'
-    )
-
-    esp_argParser.add_argument(
-        '--usb-jtag',
-        dest='usb_jtag',
-        default=False,
-        action='store_true'
-    )
-
-    esp_args, extra_args = esp_argParser.parse_known_args(extra_args)
-    usb_otg = esp_args.usb_otg
-    usb_jtag = esp_args.usb_jtag
-
-    return extra_args
-
-
-def esp32_c3_args(extra_args):
-    global usb_jtag
-
-    usb_jtag = True
     return extra_args
 
 
 def esp32_args(extra_args):
+    if custom_board_path is not None:
+        return extra_args
+
     global board_variant
     global ota
 
@@ -422,7 +528,31 @@ def esp32_args(extra_args):
 
 def parse_args(extra_args, lv_cflags, brd):
     global board
-    global usb_otg
+    global custom_board_path
+
+    esp_argParser = ArgumentParser(prefix_chars='-')
+    esp_argParser.add_argument(
+        '--custom-board-path',
+        dest='custom_board_path',
+        default=None,
+        action='store'
+    )
+    esp_args, extra_args = esp_argParser.parse_known_args(extra_args)
+
+    custom_board_path = esp_args.custom_board_path
+
+    if custom_board_path is not None:
+        if not os.path.exists(custom_board_path):
+            raise RuntimeError(
+                'Supplied custom board path does not exist.'
+            )
+        parent_folder_name = os.path.split(custom_board_path)[-1]
+
+        dst_path = f'lib/micropython/ports/esp32/boards/{parent_folder_name}'
+        shutil.copytree(custom_board_path, dst_path)
+
+        if brd is None:
+            brd = parent_folder_name
 
     if brd is None:
         brd = 'ESP32_GENERIC'
@@ -433,22 +563,15 @@ def parse_args(extra_args, lv_cflags, brd):
 
     if board == 'ESP32_GENERIC':
         extra_args = esp32_args(extra_args)
-    elif board == 'ESP32_GENERIC_S2':
-        extra_args = esp32_s2_args(extra_args)
     elif board == 'ESP32_GENERIC_S3':
         extra_args = esp32_s3_args(extra_args)
-    elif board == 'ESP32_GENERIC_C3':
-        extra_args = esp32_c3_args(extra_args)
-    elif board == 'LOLIN_S2_MINI':
-        usb_otg = True
+
+    extra_args = repl_args(extra_args)
 
     if lv_cflags:
         lv_cflags += ' -DLV_KCONFIG_IGNORE=1'
     else:
         lv_cflags = '-DLV_KCONFIG_IGNORE=1'
-
-    if usb_otg and usb_jtag:
-        raise RuntimeError('You cannot use both --usb-otg and --usb-jtag')
 
     return extra_args, lv_cflags, board
 
@@ -541,7 +664,7 @@ set_displays = []
 
 
 def build_manifest(
-    target, script_dir, lvgl_api, displays, indevs, frozen_manifest
+    target, script_dir, lvgl_api, displays, indevs, expanders, frozen_manifest
 ):
     _update_mphalport(target)
 
@@ -561,8 +684,8 @@ def build_manifest(
 
     set_displays.extend(generate_manifest(
         script_dir, lvgl_api, manifest_path,
-        displays, indevs, frozen_manifest,
-        f'{script_dir}/api_drivers/common_api_drivers/frozen/other/spi3wire.py'
+        displays, indevs, expanders, frozen_manifest
+        # f'{script_dir}/api_drivers/common_api_drivers/frozen/other/spi3wire.py'
     ))
 
 
@@ -657,6 +780,8 @@ def environ_helper(idf_path):
 
         spawn(env_cmds, out_to_screen=False)
 
+    env['EXTRA_CFLAGS'] = f'-DLCD_RGB_OPTIMUM_FB_SIZE={optimum_fb_size}'
+
     return env
 
 
@@ -750,22 +875,58 @@ def setup_idf_environ():
     else:
         cmds = []
 
+    env['EXTRA_CFLAGS'] = f'-DLCD_RGB_OPTIMUM_FB_SIZE={optimum_fb_size}'
     return env, cmds
 
 
-def add_components():
-    # port_path = f'{SCRIPT_DIR}/lib/micropython/ports/esp32'
-    # for pth in ('esp32', 'esp32c3', 'esp32s2', 'esp32s3'):
-    #     pth = os.path.join(port_path, f'main_{pth}', 'idf_component.yml')
-    #     with open(pth, 'rb') as f:
-    #         data = f.read().decode('utf-8')
-    #
-    #     if 'espressif/esp_lcd_panel_io_additions: "~1.0.1"' not in data:
-    #         data += '\n  espressif/esp_io_expander: "~1.0.1"'
-    #         data += '\n  espressif/esp_lcd_panel_io_additions: "~1.0.1"\n'
-    #         with open(pth, 'wb') as f:
-    #             f.write(data.encode('utf-8'))
-    pass
+def user_c_module():
+
+    with open('ext_mod/esp32_components.cmake', 'r') as f:
+        data = f.read().split('\n')
+
+    for line in data[:]:
+        if line.startswith('include'):
+            data.remove(line)
+
+    data.append('')
+
+    for module in user_c_modules:
+        data.append(f'include({module})')
+
+    with open('ext_mod/esp32_components.cmake', 'w') as f:
+        f.write('\n'.join(data))
+
+
+def add_components(env, cmds):
+    comp_names = []
+    comps = []
+
+    for component in components:
+        comp_name = ''
+        for char in component:
+            if char == '"':
+                continue
+            if char in '<>=`^|':
+                break
+            comp_name += char
+
+        comp_names.append(comp_name.split('/')[-1])
+        comps.append([f'idf.py add-dependency {component}'])
+
+    if comps:
+        cmds.extend(comps)
+        ret_code, output = spawn(cmds, env=env)
+        if ret_code != 0:
+            sys.exit(ret_code)
+
+        with open('ext_mod/esp32_components.cmake', 'w') as f:
+            f.write('list(APPEND IDF_COMPONENTS\n')
+            for item in comp_names:
+                f.write(f'    {item}\n')
+            f.write(')\n')
+    else:
+        with open('ext_mod/esp32_components.cmake', 'w') as f:
+            f.write('')
 
 
 def submodules():
@@ -778,11 +939,11 @@ def submodules():
 
     cmds = [
         [f'export "IDF_PATH={os.path.abspath(idf_path)}"'],
-        ['cd', idf_path],
+        ['cd', os.path.abspath(idf_path)],
         ['./install.sh', 'all']
     ]
 
-    print(f'setting up ESP-IDF v{IDF_VER}')
+    print(f'setting up ESP-IDF v5.2.3')
     print('this might take a while...')
     env = {k: v for k, v in os.environ.items()}
     env['IDF_PATH'] = os.path.abspath(idf_path)
@@ -791,19 +952,38 @@ def submodules():
     if result != 0:
         sys.exit(result)
 
-    env, cmds = setup_idf_environ()
+    cmds = []
 
-    wifi_lib = os.path.abspath(os.path.join(idf_path, 'components/esp_wifi/lib'))
-    berkeley_db = os.path.abspath('lib/micropython/lib/berkeley-db-1.xx/README')
+    for name, file in (
+        ('berkeley-db-1.xx', 'README'),
+        ('mbedtls', 'README.md'),
+        ('micropython-lib', 'README.md'),
+        ('tinyusb', 'README.rst')
+    ):
+        file = os.path.join('lib/micropython/lib', name, file)
+        if not os.path.exists(file):
+            cmds.extend([
+                [f'git submodule sync lib/{name}'],
+                [f'git submodule update --init --depth=1 lib/{name}']
+            ])
+    if cmds:
+        cmds.insert(0, ['cd lib/micropython'])
+        cmds.append(['cd ../..'])
 
-    if not os.path.exists(berkeley_db) or not os.path.exists(wifi_lib):
-        cmds.append(submodules_cmd)
+    cmds.insert(0, [f'cd {SCRIPT_DIR}'])
+    cmds.insert(0, ['. ./export.sh'])
+    cmds.insert(0, ['cd', os.path.abspath(idf_path)])
 
-        return_code, _ = spawn(cmds, env=env)
-        if return_code != 0:
-            sys.exit(return_code)
-            
-            
+    if 'GITHUB_RUN_ID' in os.environ:
+        cmds.insert(0, [f'export "IDF_PATH={os.path.abspath(idf_path)}"'])
+
+    cmds.append(submodules_cmd[:])
+
+    return_code, _ = spawn(cmds, env=env)
+    if return_code != 0:
+        sys.exit(return_code)
+
+
 def find_esp32_ports(chip):
     from esptool.targets import CHIP_DEFS  # NOQA
     from esptool.util import FatalError  # NOQA
@@ -881,15 +1061,15 @@ def update_panic_handler():
     if '"MPY version : "' in data:
         beg, end = data.split('"MPY version : "', 1)
         end = end.split('"\\r\\n"', 1)[1]
-        data = (
-            f'{beg}"LVGL MPY version : 1.23.0 on " '
-            f'MICROPY_BUILD_DATE MICROPY_BUILD_TYPE_PAREN "\\r\\n"{end}'
-        )
+        data = f'{beg}"LVGL MicroPython \\r\\n"{end}'
 
         write_file(PANICHANDLER_PATH, data)
 
 
 def update_mpconfigboard():
+    if custom_board_path is not None:
+        return
+
     mpconfigboard_cmake_path = (
         'lib/micropython/ports/esp32/boards/'
         f'{board}/mpconfigboard.cmake'
@@ -911,17 +1091,48 @@ def update_mpconfigboard():
 def update_mpconfigport():
     data = read_file('esp32', MPCONFIGPORT_PATH)
 
-    if 'MP_USB_OTG' in data:
-        data = data.rsplit('\n\n#define MP_USB_OTG', 1)[0]
+    if custom_board_path is None:
+        repl_data = [
+            '#ifdef MICROPY_HW_UART_REPL_BAUD',
+            '#undef MICROPY_HW_UART_REPL_BAUD',
+            '#endif',
+            f'#define MICROPY_HW_UART_REPL_BAUD  ({uart_repl_bitrate})'
+        ]
 
-    data += (
-        '\n\n#define MP_USB_OTG'
-        f'  (SOC_USB_OTG_SUPPORTED && {str(usb_otg).lower()})\n'
-    )
-    data += (
-        '\n\n#define MP_USB_SERIAL_JTAG'
-        f'  (SOC_USB_SERIAL_JTAG_SUPPORTED && {str(usb_jtag).lower()})\n'
-    )
+        if enable_uart_repl is not None:
+            repl_data.extend([
+                '#ifdef MICROPY_HW_ENABLE_UART_REPL',
+                '#undef MICROPY_HW_ENABLE_UART_REPL',
+                '#endif',
+                f'#define MICROPY_HW_ENABLE_UART_REPL  ({int(enable_uart_repl.lower() == "y")})'
+            ])
+
+        if enable_cdc_repl is not None:
+            repl_data.extend([
+                '#ifdef MICROPY_HW_ENABLE_USBDEV',
+                '#undef MICROPY_HW_ENABLE_USBDEV',
+                '#endif',
+                f'#define MICROPY_HW_ENABLE_USBDEV  ({int(enable_cdc_repl.lower() == "y")})'
+            ])
+
+        if enable_jtag_repl is not None:
+            repl_data.extend([
+                '#ifdef MICROPY_HW_ESP_USB_SERIAL_JTAG',
+                '#undef MICROPY_HW_ESP_USB_SERIAL_JTAG',
+                '#endif',
+                f'#define MICROPY_HW_ESP_USB_SERIAL_JTAG  ({int(enable_jtag_repl.lower() == "y")})'
+            ])
+
+        repl_data.extend([
+            '',
+            '#ifndef MICROPY_CONFIG_ROM_LEVEL'
+        ])
+
+        data = data.replace(
+            '#ifndef MICROPY_CONFIG_ROM_LEVEL',
+            '\n'.join(repl_data),
+            1
+        )
 
     pattern = (
         '#if !(CONFIG_IDF_TARGET_ESP32 && CONFIG_SPIRAM && '
@@ -990,35 +1201,64 @@ def update_mpconfigport():
     write_file(MPCONFIGPORT_PATH, data)
 
 
-def update_mphalport():
-    data = read_file('esp32', MPHALPORT_PATH)
-    data = data.replace(
-        '#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG',
-        '#if MP_USB_SERIAL_JTAG'
-    )
-    data = data.replace(
-        '#elif CONFIG_USB_OTG_SUPPORTED',
-        '#elif MP_USB_OTG'
-    )
-
-    write_file(MPHALPORT_PATH, data)
-
-
 def update_main():
     data = read_file('esp32', MAIN_PATH)
+
+    rep_data = [
+        '#if SOC_LCD_I80_SUPPORTED',
+        '#include "../../../../ext_mod/lcd_bus/esp32_include/i80_bus.h"',
+        '#endif',
+        '',
+        '#if SOC_LCD_RGB_SUPPORTED',
+        '#include "../../../../ext_mod/lcd_bus/esp32_include/rgb_bus.h"',
+        '#endif',
+        '',
+        '#include "../../../../ext_mod/lcd_bus/esp32_include/spi_bus.h"',
+        '#include "../../../../ext_mod/lcd_bus/esp32_include/i2c_bus.h"',
+        '#include "../../../../ext_mod/spi3wire/include/spi3wire.h"',
+        '#include "../../../../micropy_updates/common/mp_spi_common.h"',
+        '',
+        '#if MICROPY_BLUETOOTH_NIMBLE'
+    ]
+
     data = data.replace(
-        '#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG',
-        '#if MP_USB_SERIAL_JTAG'
+        '#if MICROPY_BLUETOOTH_NIMBLE',
+        '\n'.join(rep_data),
+        1
     )
+
+    rep_data = [
+        'soft_reset_exit:',
+        ' ',
+        '#if SOC_LCD_I80_SUPPORTED',
+        '    mp_lcd_i80_bus_deinit_all();',
+        '#endif',
+        '    ',
+        '#if SOC_LCD_RGB_SUPPORTED',
+        '   mp_lcd_rgb_bus_deinit_all();',
+        '#endif',
+        '    ',
+        '    mp_lcd_spi_bus_deinit_all();',
+        '    ',
+        '    mp_lcd_i2c_bus_deinit_all();',
+        '    ',
+        '    mp_spi3wire_deinit_all();',
+        '    ',
+        '    mp_machine_hw_spi_bus_deinit_all();'
+    ]
+
     data = data.replace(
-        '#elif CONFIG_USB_OTG_SUPPORTED',
-        '#elif MP_USB_OTG'
+        'soft_reset_exit:',
+        '\n'.join(rep_data)
     )
 
     write_file(MAIN_PATH, data)
 
 
 def build_sdkconfig(*args):
+    if custom_board_path is not None:
+        return
+
     base_config = [
         'CONFIG_ESPTOOLPY_AFTER_NORESET=y',
         'CONFIG_PARTITION_TABLE_CUSTOM=y',
@@ -1106,35 +1346,48 @@ def build_sdkconfig(*args):
         if not os.path.exists(display_path):
             continue
 
-        base_config.extend(read_file(display_path).split('\n'))
+        with open(display_path, 'r') as f:
+            base_config.extend(f.read().split('\n'))
 
     with open(SDKCONFIG_PATH, 'w') as f:
         f.write('\n'.join(base_config))
+
+
+def revert_custom_board():
+    if custom_board_path is None:
+        return
+
+    parent_name = os.path.split(custom_board_path)[-1]
+
+    path = f'lib/micropython/ports/esp32/boards/{parent_name}'
+    if os.path.exists(path):
+        shutil.rmtree(path)
 
 
 def compile(*args):  # NOQA
     global PORT
     global flash_size
 
-    add_components()
-
     env, cmds = setup_idf_environ()
+    add_components(env, cmds[:])
+    user_c_module()
 
     if ccache:
         env['IDF_CCACHE_ENABLE'] = '1'
 
     build_sdkconfig(*args)
 
-    if partition_size == -1:
-        p_size = 0x25A000
-    else:
-        p_size = partition_size
+    if custom_board_path is None:
 
-    partition = Partition(p_size)
-    partition.save()
+        if partition_size == -1:
+            p_size = 0x25A000
+        else:
+            p_size = partition_size
+
+        partition = Partition(p_size)
+        partition.save()
 
     update_main()
-    update_mphalport()
     update_mpthreadport()
     update_panic_handler()
     update_mpconfigboard()
@@ -1147,17 +1400,27 @@ def compile(*args):  # NOQA
         cmd_.extend(list(args))
 
         ret_code, output = spawn(cmd_, env=env, cmpl=True)
+
+        revert_custom_board()
+
         if ret_code != 0:
-            if skip_partition_resize:
+            if custom_board_path is not None:
                 revert_files('esp32')
                 sys.exit(ret_code)
+            else:
+                if skip_partition_resize:
+                    revert_files('esp32')
+                    sys.exit(ret_code)
 
-            if partition_size != -1:
-                revert_files('esp32')
-                sys.exit(ret_code)
+                if partition_size != -1:
+                    revert_files('esp32')
+                    sys.exit(ret_code)
 
-        if not skip_partition_resize and partition_size == -1:
-
+        if (
+            not skip_partition_resize and
+            partition_size == -1 and
+            custom_board_path is None
+        ):
             for pattern in (
                 'Error: app partition is too small',
                 'Error: All app partitions are too small'
@@ -1228,7 +1491,8 @@ def compile(*args):  # NOQA
 
             for ver in ('3.8', '3.9', '3.10', '3.11', '3.12'):
                 python_path = (
-                    f'{espressif_path}/python_env/idf{IDF_VER[:-2]}_py{ver}_env/bin'
+                    f'{espressif_path}/python_env/'
+                    f'idf{IDF_VER[:-2]}_py{ver}_env/bin'
                 )
                 if os.path.exists(python_path):
                     break
@@ -1256,7 +1520,10 @@ def compile(*args):  # NOQA
                 bf = f'{full_file_path}{bf.strip()}'
                 bin_files.extend([f'0x{item.strip()}', bf])
 
-            old_bin_files = ['0x' + item.strip() for item in output.split('0x')[1:]]
+            old_bin_files = [
+                '0x' + item.strip()
+                for item in output.split('0x')[1:]
+            ]
             old_bin_files = ' '.join(old_bin_files)
 
             scrub_build_folder()
@@ -1356,6 +1623,7 @@ def compile(*args):  # NOQA
             print(output)
             print()
     finally:
+        revert_custom_board()
         revert_files('esp32')
 
 

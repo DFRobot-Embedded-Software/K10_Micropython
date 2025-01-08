@@ -1,3 +1,5 @@
+// Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 // local includes
 #include "modlcd_bus.h"
 #include "spi_bus.h"
@@ -149,16 +151,19 @@ MP_DEFINE_CONST_FUN_OBJ_KW(mp_lcd_bus_tx_param_obj, 2, mp_lcd_bus_tx_param);
 
 mp_obj_t mp_lcd_bus_tx_color(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args)
 {
-    enum { ARG_self, ARG_cmd, ARG_data, ARG_x_start, ARG_y_start, ARG_x_end, ARG_y_end };
+    enum { ARG_self, ARG_cmd, ARG_data, ARG_x_start, ARG_y_start, ARG_x_end, ARG_y_end, ARG_rotation, ARG_last_update };
     static const mp_arg_t allowed_args[] = {
-        { MP_QSTR_self,    MP_ARG_OBJ | MP_ARG_REQUIRED, { .u_obj = mp_const_none } },
-        { MP_QSTR_cmd,     MP_ARG_INT | MP_ARG_REQUIRED, { .u_int = -1            } },
-        { MP_QSTR_data,    MP_ARG_OBJ | MP_ARG_REQUIRED, { .u_obj = mp_const_none } },
-        { MP_QSTR_x_start, MP_ARG_INT | MP_ARG_REQUIRED, { .u_int = -1            } },
-        { MP_QSTR_y_start, MP_ARG_INT | MP_ARG_REQUIRED, { .u_int = -1            } },
-        { MP_QSTR_x_end,   MP_ARG_INT | MP_ARG_REQUIRED, { .u_int = -1            } },
-        { MP_QSTR_y_end,   MP_ARG_INT | MP_ARG_REQUIRED, { .u_int = -1            } },
+        { MP_QSTR_self,        MP_ARG_OBJ  | MP_ARG_REQUIRED, { .u_obj = mp_const_none } },
+        { MP_QSTR_cmd,         MP_ARG_INT  | MP_ARG_REQUIRED, { .u_int = -1            } },
+        { MP_QSTR_data,        MP_ARG_OBJ  | MP_ARG_REQUIRED, { .u_obj = mp_const_none } },
+        { MP_QSTR_x_start,     MP_ARG_INT  | MP_ARG_REQUIRED, { .u_int = -1            } },
+        { MP_QSTR_y_start,     MP_ARG_INT  | MP_ARG_REQUIRED, { .u_int = -1            } },
+        { MP_QSTR_x_end,       MP_ARG_INT  | MP_ARG_REQUIRED, { .u_int = -1            } },
+        { MP_QSTR_y_end,       MP_ARG_INT  | MP_ARG_REQUIRED, { .u_int = -1            } },
+        { MP_QSTR_rotation,    MP_ARG_INT  | MP_ARG_REQUIRED, { .u_int =  0            } },
+        { MP_QSTR_last_update, MP_ARG_BOOL | MP_ARG_REQUIRED, { .u_bool = false        } },
     };
+
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
@@ -175,7 +180,9 @@ mp_obj_t mp_lcd_bus_tx_color(size_t n_args, const mp_obj_t *pos_args, mp_map_t *
         (int)args[ARG_x_start].u_int,
         (int)args[ARG_y_start].u_int,
         (int)args[ARG_x_end].u_int,
-        (int)args[ARG_y_end].u_int
+        (int)args[ARG_y_end].u_int,
+        (uint8_t)args[ARG_rotation].u_int,
+        (bool)args[ARG_last_update].u_bool
     );
 
     if (ret != 0) {
@@ -252,6 +259,16 @@ mp_obj_t mp_lcd_bus_register_callback(size_t n_args, const mp_obj_t *pos_args, m
 MP_DEFINE_CONST_FUN_OBJ_KW(mp_lcd_bus_register_callback_obj, 2, mp_lcd_bus_register_callback);
 
 
+static mp_obj_t mp_lcd_bus__pump_main_thread(void)
+{
+    mp_handle_pending(true);
+    return mp_const_none;
+}
+
+static MP_DEFINE_CONST_FUN_OBJ_0(mp_lcd_bus__pump_main_thread_obj, mp_lcd_bus__pump_main_thread);
+
+
+
 static const mp_rom_map_elem_t mp_lcd_bus_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_get_lane_count),       MP_ROM_PTR(&mp_lcd_bus_get_lane_count_obj)       },
     { MP_ROM_QSTR(MP_QSTR_allocate_framebuffer), MP_ROM_PTR(&mp_lcd_bus_allocate_framebuffer_obj) },
@@ -268,15 +285,16 @@ static const mp_rom_map_elem_t mp_lcd_bus_locals_dict_table[] = {
 MP_DEFINE_CONST_DICT(mp_lcd_bus_locals_dict, mp_lcd_bus_locals_dict_table);
 
 
-static const mp_map_elem_t mp_module_lcd_bus_globals_table[] = {
-    { MP_ROM_QSTR(MP_QSTR___name__),           MP_OBJ_NEW_QSTR(MP_QSTR_lcd_bus)      },
-    { MP_ROM_QSTR(MP_QSTR_RGBBus),             (mp_obj_t)&mp_lcd_rgb_bus_type        },
-    { MP_ROM_QSTR(MP_QSTR_SPIBus),             (mp_obj_t)&mp_lcd_spi_bus_type        },
-    { MP_ROM_QSTR(MP_QSTR_I2CBus),             (mp_obj_t)&mp_lcd_i2c_bus_type        },
-    { MP_ROM_QSTR(MP_QSTR_I80Bus),             (mp_obj_t)&mp_lcd_i80_bus_type        },
+static const mp_rom_map_elem_t mp_module_lcd_bus_globals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR___name__),           MP_OBJ_NEW_QSTR(MP_QSTR_lcd_bus)        },
+    { MP_ROM_QSTR(MP_QSTR_RGBBus),             MP_ROM_PTR(&mp_lcd_rgb_bus_type)        },
+    { MP_ROM_QSTR(MP_QSTR_SPIBus),             MP_ROM_PTR(&mp_lcd_spi_bus_type)        },
+    { MP_ROM_QSTR(MP_QSTR_I2CBus),             MP_ROM_PTR(&mp_lcd_i2c_bus_type)        },
+    { MP_ROM_QSTR(MP_QSTR_I80Bus),             MP_ROM_PTR(&mp_lcd_i80_bus_type)        },
+    { MP_ROM_QSTR(MP_QSTR__pump_main_thread),  MP_ROM_PTR(&mp_lcd_bus__pump_main_thread_obj)       },
 
     #ifdef MP_PORT_UNIX
-        { MP_ROM_QSTR(MP_QSTR_SDLBus),         (mp_obj_t)&mp_lcd_sdl_bus_type        },
+        { MP_ROM_QSTR(MP_QSTR_SDLBus),         MP_ROM_PTR(&mp_lcd_sdl_bus_type)        },
     #endif
     { MP_ROM_QSTR(MP_QSTR_DEBUG_ENABLED),    MP_ROM_INT(LCD_DEBUG) },
 

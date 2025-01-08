@@ -182,11 +182,17 @@
 #define OPT_MCU_CH32V307         2200 ///< WCH CH32V307
 #define OPT_MCU_CH32F20X         2210 ///< WCH CH32F20x
 #define OPT_MCU_CH32V20X         2220 ///< WCH CH32V20X
-
+#define OPT_MCU_CH32V103         2230 ///< WCH CH32V103
 
 // NXP LPC MCX
 #define OPT_MCU_MCXN9            2300  ///< NXP MCX N9 Series
 #define OPT_MCU_MCXA15           2301  ///< NXP MCX A15 Series
+
+// Analog Devices
+#define OPT_MCU_MAX32690         2400  ///< ADI MAX32690
+#define OPT_MCU_MAX32666         2401  ///< ADI MAX32666/5
+#define OPT_MCU_MAX32650         2402  ///< ADI MAX32650/1/2
+#define OPT_MCU_MAX78002         2403  ///< ADI MAX78002
 
 // Check if configured MCU is one of listed
 // Apply _TU_CHECK_MCU with || as separator to list of input
@@ -381,7 +387,7 @@
   #error "CFG_TUD_ENDPPOINT_MAX must be less than or equal to TUP_DCD_ENDPOINT_MAX"
 #endif
 
-// USB 2.0 compliance test mode support
+// USB 2.0 7.1.20: compliance test mode support
 #ifndef CFG_TUD_TEST_MODE
   #define CFG_TUD_TEST_MODE       0
 #endif

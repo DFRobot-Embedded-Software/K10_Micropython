@@ -36,7 +36,7 @@
 #include <openthread/link_metrics.h>
 
 #include "cli/cli.hpp"
-#include "cli/cli_output.hpp"
+#include "cli/cli_utils.hpp"
 #include "common/code_utils.hpp"
 
 #if OPENTHREAD_CONFIG_MLE_LINK_METRICS_INITIATOR_ENABLE
@@ -45,7 +45,7 @@ namespace ot {
 namespace Cli {
 
 LinkMetrics::LinkMetrics(otInstance *aInstance, OutputImplementer &aOutputImplementer)
-    : Output(aInstance, aOutputImplementer)
+    : Utils(aInstance, aOutputImplementer)
     , mLinkMetricsQueryInProgress(false)
 {
 }
@@ -138,7 +138,7 @@ template <> otError LinkMetrics::Process<Cmd("mgmt")>(Arg aArgs[])
 
     SuccessOrExit(error = aArgs[0].ParseAsIp6Address(address));
 
-    memset(&seriesFlags, 0, sizeof(otLinkMetricsSeriesFlags));
+    ClearAllBytes(seriesFlags);
 
     /**
      * @cli linkmetrics mgmt forward
@@ -171,7 +171,7 @@ template <> otError LinkMetrics::Process<Cmd("mgmt")>(Arg aArgs[])
         uint8_t       seriesId;
         otLinkMetrics linkMetrics;
 
-        memset(&linkMetrics, 0, sizeof(otLinkMetrics));
+        ClearAllBytes(linkMetrics);
         SuccessOrExit(error = aArgs[2].ParseAsUint8(seriesId));
         VerifyOrExit(!aArgs[3].IsEmpty(), error = OT_ERROR_INVALID_ARGS);
 
@@ -368,7 +368,7 @@ otError LinkMetrics::ParseLinkMetricsFlags(otLinkMetrics &aLinkMetrics, const Ar
 
     VerifyOrExit(!aFlags.IsEmpty(), error = OT_ERROR_INVALID_ARGS);
 
-    memset(&aLinkMetrics, 0, sizeof(aLinkMetrics));
+    ClearAllBytes(aLinkMetrics);
 
     for (const char *arg = aFlags.GetCString(); *arg != '\0'; arg++)
     {

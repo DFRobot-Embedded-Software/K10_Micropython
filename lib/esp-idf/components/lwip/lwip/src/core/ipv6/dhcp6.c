@@ -547,7 +547,12 @@ dhcp6_handle_config_reply(struct netif *netif, struct pbuf *p_msg_in)
       }
       ip6_addr_assign_zone(dns_addr6, IP6_UNKNOWN, netif);
       /* @todo: do we need a different offset than DHCP(v4)? */
+#if LWIP_DNS_SETSERVER_WITH_NETIF
+      dns_setserver_with_netif(netif, n, &dns_addr);
+#else
       dns_setserver(n, &dns_addr);
+#endif
+
     }
   }
   /* @ todo: parse and set Domain Search List */

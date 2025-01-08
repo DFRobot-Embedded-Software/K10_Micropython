@@ -29,6 +29,7 @@ static uint8_t ble_hs_pvcy_irk[16];
 
 /** Use this as a default IRK if none gets set. */
 uint8_t ble_hs_pvcy_default_irk[16];
+uint16_t rpa_timeout;
 
 static int
 ble_hs_pvcy_set_addr_timeout(uint16_t timeout)
@@ -48,6 +49,23 @@ ble_hs_pvcy_set_addr_timeout(uint16_t timeout)
     return ble_hs_hci_cmd_tx(BLE_HCI_OP(BLE_HCI_OGF_LE,
                                         BLE_HCI_OCF_LE_SET_RPA_TMO),
                              &cmd, sizeof(cmd), NULL, 0);
+}
+
+int ble_hs_set_rpa_timeout (uint16_t timeout)
+{
+    rpa_timeout = timeout;
+
+    return ble_hs_pvcy_set_addr_timeout(rpa_timeout);
+}
+
+uint16_t ble_hs_get_rpa_timeout(void)
+{
+    return rpa_timeout;
+}
+
+void ble_hs_reset_rpa_timeout(void)
+{
+    rpa_timeout = 0 ;
 }
 
 #if (!MYNEWT_VAL(BLE_HOST_BASED_PRIVACY))
@@ -179,6 +197,7 @@ int
 ble_hs_pvcy_ensure_started(void)
 {
     int rc;
+    uint16_t rpa_timeout;
 
     if (ble_hs_pvcy_started) {
         return 0;
@@ -189,8 +208,16 @@ ble_hs_pvcy_ensure_started(void)
     ble_hs_resolv_init();
 #endif
 
+    /* Check if user has already set any timeout. If yes, use it */
+    rpa_timeout = ble_hs_get_rpa_timeout();
+
     /* Set up the periodic change of our RPA. */
-    rc = ble_hs_pvcy_set_addr_timeout(MYNEWT_VAL(BLE_RPA_TIMEOUT));
+    if (rpa_timeout) {
+        rc = ble_hs_pvcy_set_addr_timeout(rpa_timeout);
+    } else {
+        rc = ble_hs_pvcy_set_addr_timeout(MYNEWT_VAL(BLE_RPA_TIMEOUT));
+    }
+
     if (rc != 0) {
         return rc;
     }
@@ -263,54 +290,51 @@ ble_hs_pvcy_set_our_irk(const uint8_t *irk)
         memcpy(new_irk, ble_hs_pvcy_default_irk, 16);
     }
 
-    /* Clear the resolving list if this is a new IRK. */
-    if (memcmp(ble_hs_pvcy_irk, new_irk, 16) != 0) {
-        memcpy(ble_hs_pvcy_irk, new_irk, 16);
+    memcpy(ble_hs_pvcy_irk, new_irk, 16);
 
 #if MYNEWT_VAL(BLE_HOST_BASED_PRIVACY)
-        if (irk != NULL) {
-            bool rpa_state = false;
+    if (irk != NULL) {
+       bool rpa_state = false;
 
-            if ((rpa_state = ble_host_rpa_enabled()) == true) {
-                ble_hs_resolv_enable(0);
-            }
+       if ((rpa_state = ble_host_rpa_enabled()) == true) {
+            ble_hs_resolv_enable(0);
+       }
 
-            ble_hs_resolv_list_clear_all();
+       ble_hs_resolv_list_clear_all();
 
-            if (rpa_state) {
-                ble_hs_resolv_enable(1);
-            }
-        }
+       if (rpa_state) {
+             ble_hs_resolv_enable(1);
+       }
+   }
 #else
-        rc = ble_hs_pvcy_set_resolve_enabled(0);
-        if (rc != 0) {
-            return rc;
-        }
+    rc = ble_hs_pvcy_set_resolve_enabled(0);
+    if (rc != 0) {
+       return rc;
+    }
 
-        rc = ble_hs_pvcy_clear_entries();
-        if (rc != 0) {
-            return rc;
-        }
+    rc = ble_hs_pvcy_clear_entries();
+    if (rc != 0) {
+       return rc;
+    }
 
-        rc = ble_hs_pvcy_set_resolve_enabled(1);
-        if (rc != 0) {
-            return rc;
-        }
+    rc = ble_hs_pvcy_set_resolve_enabled(1);
+    if (rc != 0) {
+       return rc;
+    }
 
 #endif
-        /*
-         * Add local IRK entry with 00:00:00:00:00:00 address. This entry will
-         * be used to generate RPA for non-directed advertising if own_addr_type
-         * is set to rpa_pub since we use all-zero address as peer addres in
-         * such case. Peer IRK should be left all-zero since this is not for an
-         * actual peer.
-         */
-        memset(tmp_addr, 0, 6);
-        memset(new_irk, 0, 16);
-        rc = ble_hs_pvcy_add_entry(tmp_addr, 0, new_irk);
-        if (rc != 0) {
-            return rc;
-        }
+    /*
+      * Add local IRK entry with 00:00:00:00:00:00 address. This entry will
+      * be used to generate RPA for non-directed advertising if own_addr_type
+      * is set to rpa_pub since we use all-zero address as peer addres in
+      * such case. Peer IRK should be left all-zero since this is not for an
+      * actual peer.
+      */
+    memset(tmp_addr, 0, 6);
+    memset(new_irk, 0, 16);
+    rc = ble_hs_pvcy_add_entry(tmp_addr, 0, new_irk);
+    if (rc != 0) {
+        return rc;
     }
 
     return 0;

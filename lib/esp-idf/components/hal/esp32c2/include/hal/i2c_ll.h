@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,6 +17,7 @@
 #include "hal/i2c_types.h"
 #include "soc/rtc_cntl_reg.h"
 #include "soc/clk_tree_defs.h"
+#include "soc/system_struct.h"
 #include "esp_attr.h"
 
 #ifdef __cplusplus
@@ -59,6 +60,7 @@ typedef enum {
 #define I2C_LL_GET_HW(i2c_num)        (&I2C0)
 #define I2C_LL_MASTER_EVENT_INTR    (I2C_NACK_INT_ENA_M|I2C_TIME_OUT_INT_ENA_M|I2C_TRANS_COMPLETE_INT_ENA_M|I2C_ARBITRATION_LOST_INT_ENA_M|I2C_END_DETECT_INT_ENA_M)
 #define I2C_LL_RESET_SLV_SCL_PULSE_NUM_DEFAULT   (9)
+#define I2C_LL_SCL_WAIT_US_VAL_DEFAULT   (2000)  // Approximate value for SCL timeout regs (in us).
 
 /**
  * @brief  Calculate I2C bus frequency
@@ -112,6 +114,38 @@ static inline void i2c_ll_update(i2c_dev_t *hw)
 }
 
 /**
+ * @brief Enable the bus clock for I2C module
+ *
+ * @param i2c_port I2C port id
+ * @param enable true to enable, false to disable
+ */
+static inline void i2c_ll_enable_bus_clock(int i2c_port, bool enable)
+{
+    (void)i2c_port;
+    SYSTEM.perip_clk_en0.i2c_ext0_clk_en = enable;
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define i2c_ll_enable_bus_clock(...) do {(void)__DECLARE_RCC_ATOMIC_ENV; i2c_ll_enable_bus_clock(__VA_ARGS__);} while(0)
+
+/**
+ * @brief Reset the I2C module
+ *
+ * @param i2c_port Group ID
+ */
+static inline void i2c_ll_reset_register(int i2c_port)
+{
+    (void)i2c_port;
+    SYSTEM.perip_rst_en0.i2c_ext0_rst = 1;
+    SYSTEM.perip_rst_en0.i2c_ext0_rst = 0;
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define i2c_ll_reset_register(...) do {(void)__DECLARE_RCC_ATOMIC_ENV; i2c_ll_reset_register(__VA_ARGS__);} while(0)
+
+/**
  * @brief  Configure the I2C bus timing related register.
  *
  * @param  hw Beginning address of the peripheral registers
@@ -155,6 +189,50 @@ static inline void i2c_ll_master_set_fractional_divider(i2c_dev_t *hw, uint8_t d
     /* Set div_a and div_b to 0, as it's not necessary to use them */
     HAL_FORCE_MODIFY_U32_REG_FIELD(hw->clk_conf, sclk_div_a, div_a);
     HAL_FORCE_MODIFY_U32_REG_FIELD(hw->clk_conf, sclk_div_b, div_b);
+}
+
+/**
+ * @brief Set fractional divider
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param div_a The denominator of the frequency divider factor of the i2c function clock
+ * @param div_b The numerator of the frequency divider factor of the i2c function clock.
+ */
+static inline void i2c_ll_master_get_fractional_divider(i2c_dev_t *hw, uint32_t *div_a, uint32_t *div_b)
+{
+    /* Set div_a and div_b to 0, as it's not necessary to use them */
+    *div_a = hw->clk_conf.sclk_div_a;
+    *div_b = hw->clk_conf.sclk_div_b;
+}
+
+/**
+ * @brief Get clock configurations from registers
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param div_num div_num
+ * @param clk_sel clk_sel
+ * @param clk_active clk_active
+ */
+static inline void i2c_ll_master_save_clock_configurations(i2c_dev_t *hw, uint32_t *div_num, uint8_t *clk_sel, uint8_t *clk_active)
+{
+    *div_num = HAL_FORCE_READ_U32_REG_FIELD(hw->clk_conf, sclk_div_num);
+    *clk_sel = hw->clk_conf.sclk_sel;
+    *clk_active = hw->clk_conf.sclk_active;
+}
+
+/**
+ * @brief Get clock configurations from registers
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param div_num div_num
+ * @param clk_sel clk_sel
+ * @param clk_active clk_active
+ */
+static inline void i2c_ll_master_restore_clock_configurations(i2c_dev_t *hw, uint32_t div_num, uint8_t clk_sel, uint8_t clk_active)
+{
+    HAL_FORCE_MODIFY_U32_REG_FIELD(hw->clk_conf, sclk_div_num, div_num);
+    hw->clk_conf.sclk_sel = clk_sel;
+    hw->clk_conf.sclk_active = clk_active;
 }
 
 /**
@@ -652,6 +730,19 @@ static inline void i2c_ll_master_init(i2c_dev_t *hw)
 static inline volatile void *i2c_ll_get_interrupt_status_reg(i2c_dev_t *dev)
 {
     return &dev->int_status;
+}
+
+/**
+ * @brief Calculate SCL timeout us to reg value
+ *
+ * @param timeout_us timeout value in us
+ * @param src_clk_hz source clock frequency
+ * @return uint32_t reg value
+ */
+static inline uint32_t i2c_ll_calculate_timeout_us_to_reg_val(uint32_t src_clk_hz, uint32_t timeout_us)
+{
+    uint32_t clk_cycle_num_per_us = src_clk_hz / (1 * 1000 * 1000);
+    return 31 - __builtin_clz(clk_cycle_num_per_us * timeout_us);
 }
 
 //////////////////////////////////////////Deprecated Functions//////////////////////////////////////////////////////////

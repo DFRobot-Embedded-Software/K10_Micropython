@@ -646,13 +646,13 @@ public:
     bool IsLoopback(void) const;
 
     /**
-     * Indicates whether or not the IPv6 address scope is Link-Local.
+     * Indicates whether or not the IPv6 address is a Link-Local unicast address.
      *
-     * @retval TRUE   If the IPv6 address scope is Link-Local.
-     * @retval FALSE  If the IPv6 address scope is not Link-Local.
+     * @retval TRUE   If the IPv6 address is a Link-Local unicast address.
+     * @retval FALSE  If the IPv6 address is not a Link-Local unicast address.
      *
      */
-    bool IsLinkLocal(void) const;
+    bool IsLinkLocalUnicast(void) const;
 
     /**
      * Sets the IPv6 address to a Link-Local address with Interface Identifier generated from a given
@@ -688,6 +688,15 @@ public:
      *
      */
     bool IsLinkLocalMulticast(void) const;
+
+    /**
+     * Indicates whether or not the IPv6 address is a link-local unicast or a link-local multicast address.
+     *
+     * @retval TRUE   If the IPv6 address is a link-local unicast or multicast address.
+     * @retval FALSE  If the IPv6 address is not a link-local unicast and not a link-local multicast address.
+     *
+     */
+    bool IsLinkLocalUnicastOrMulticast(void) const;
 
     /**
      * Indicates whether or not the IPv6 address is a link-local all nodes multicast address (ff02::01).
@@ -807,6 +816,27 @@ public:
     {
         SetToLocator(aNetworkPrefix, aAloc16);
     }
+
+    /**
+     * Indicates whether or not the IPv6 address follows the IPv4-mapped format.
+     *
+     * An IPv4-mapped IPv6 address consists of an 80-bit prefix of zeros, the next 16 bits set to  ones, and the
+     * remaining, least-significant 32 bits contain the IPv4 address, e.g., `::ffff:192.0.2.128` representing
+     * `192.0.2.128` IPv4 address.
+     *
+     * @retval TRUE   If the IPv6 address follows the IPv4-mapped format.
+     * @retval FALSE  If the IPv6 address does not follow the IPv4-mapped format.
+     *
+     */
+    bool IsIp4Mapped(void) const;
+
+    /**
+     * Sets the IPv6 address to follow the IPv4-mapped IPv6 address for a given IPv4 address.
+     *
+     * @param[in] aIp4Address  An IPv4 address.
+     *
+     */
+    void SetToIp4Mapped(const Ip4::Address &aIp4Address);
 
     /**
      * Returns the Network Prefix of the IPv6 address (most significant 64 bits of the address).

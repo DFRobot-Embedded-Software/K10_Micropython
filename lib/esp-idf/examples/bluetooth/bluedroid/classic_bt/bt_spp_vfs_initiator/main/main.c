@@ -44,7 +44,8 @@ static const esp_spp_role_t role_master = ESP_SPP_ROLE_MASTER;
 static esp_bd_addr_t peer_bd_addr;
 static uint8_t peer_bdname_len;
 static char peer_bdname[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
-static const char remote_device_name[] = "ESP_SPP_ACCEPTOR";
+static const char remote_device_name[] = CONFIG_EXAMPLE_PEER_DEVICE_NAME;
+
 static const esp_bt_inq_mode_t inq_mode = ESP_BT_INQ_MODE_GENERAL_INQUIRY;
 static const uint8_t inq_len = 30;
 static const uint8_t inq_num_rsps = 0;
@@ -194,7 +195,7 @@ static void esp_spp_cb(uint16_t e, void *p)
     case ESP_SPP_VFS_REGISTER_EVT:
         if (param->vfs_register.status == ESP_SPP_SUCCESS) {
             ESP_LOGI(SPP_TAG, "ESP_SPP_VFS_REGISTER_EVT");
-            esp_bt_dev_set_device_name(EXAMPLE_DEVICE_NAME);
+            esp_bt_gap_set_device_name(EXAMPLE_DEVICE_NAME);
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
             esp_bt_gap_start_discovery(inq_mode, inq_len, inq_num_rsps);
         } else {

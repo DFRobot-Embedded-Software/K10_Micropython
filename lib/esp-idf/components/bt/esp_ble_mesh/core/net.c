@@ -2,7 +2,7 @@
 
 /*
  * SPDX-FileCopyrightText: 2017 Intel Corporation
- * SPDX-FileContributor: 2018-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2018-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -1129,23 +1129,34 @@ int bt_mesh_net_send(struct bt_mesh_net_tx *tx, struct net_buf *buf,
     if (((IS_ENABLED(CONFIG_BLE_MESH_NODE) && bt_mesh_is_provisioned()) ||
          (IS_ENABLED(CONFIG_BLE_MESH_PROVISIONER) && bt_mesh_is_provisioner_en())) &&
         (bt_mesh_fixed_group_match(tx->ctx->addr) || bt_mesh_elem_find(tx->ctx->addr))) {
-        if (cb && cb->start) {
-            cb->start(0, 0, cb_data);
+        /**
+         * If the target address isn't a unicast address, then the callback function
+         * will be called by `adv task` in place of here, to avoid the callback function
+         * being called twice.
+         * See BLEMESH24-76 for more details.
+         */
+        if (BLE_MESH_ADDR_IS_UNICAST(tx->ctx->addr)) {
+            if (cb && cb->start) {
+                cb->start(0, 0, cb_data);
+            }
+
+            net_buf_slist_put(&bt_mesh.local_queue, net_buf_ref(buf));
+
+            if (cb && cb->end) {
+                cb->end(0, cb_data);
+            }
+
+            bt_mesh_net_local();
+
+            err = 0;
+
+            goto done;
+        } else {
+            net_buf_slist_put(&bt_mesh.local_queue, net_buf_ref(buf));
+            bt_mesh_net_local();
         }
-
-        net_buf_slist_put(&bt_mesh.local_queue, net_buf_ref(buf));
-
-        if (cb && cb->end) {
-            cb->end(0, cb_data);
-        }
-
-        bt_mesh_net_local();
 
         err = 0;
-        /* If it is a group address, it still needs to be relayed */
-        if (BLE_MESH_ADDR_IS_UNICAST(tx->ctx->addr)) {
-            goto done;
-        }
     }
 
     if ((bearer & BLE_MESH_ADV_BEARER) &&
@@ -1751,9 +1762,7 @@ static bool ignore_net_msg(uint16_t src, uint16_t dst)
     }
 
     if (IS_ENABLED(CONFIG_BLE_MESH_PROVISIONER) &&
-        bt_mesh_is_provisioner_en() &&
-        BLE_MESH_ADDR_IS_UNICAST(dst) &&
-        bt_mesh_elem_find(dst)) {
+        bt_mesh_is_provisioner_en()) {
         /* If the destination address of the message is the element
          * address of Provisioner, but Provisioner fails to find the
          * node in its provisioning database, then this message will
@@ -1810,7 +1819,7 @@ void bt_mesh_net_recv(struct net_buf_simple *data, int8_t rssi,
                       bt_mesh_elem_find(rx.ctx.recv_dst));
 
     if (IS_ENABLED(CONFIG_BLE_MESH_GATT_PROXY_SERVER) &&
-        bt_mesh_private_gatt_proxy_state_get() == BLE_MESH_PRIVATE_GATT_PROXY_DISABLED &&
+        bt_mesh_private_gatt_proxy_state_get() != BLE_MESH_PRIVATE_GATT_PROXY_ENABLED &&
         net_if == BLE_MESH_NET_IF_PROXY) {
         bt_mesh_proxy_server_addr_add(data, rx.ctx.addr);
 

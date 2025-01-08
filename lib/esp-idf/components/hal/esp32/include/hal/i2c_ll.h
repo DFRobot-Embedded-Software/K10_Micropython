@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,6 +13,7 @@
 #include "soc/i2c_periph.h"
 #include "soc/i2c_struct.h"
 #include "soc/clk_tree_defs.h"
+#include "soc/dport_reg.h"
 #include "hal/i2c_types.h"
 #include "esp_attr.h"
 #include "hal/assert.h"
@@ -69,6 +70,7 @@ typedef enum {
 #define I2C_LL_SLAVE_EVENT_INTR     (I2C_TRANS_COMPLETE_INT_ENA_M|I2C_TXFIFO_EMPTY_INT_ENA_M|I2C_RX_REC_FULL_INT_ST_M)
 #define I2C_LL_SLAVE_RX_EVENT_INTR  (I2C_TRANS_COMPLETE_INT_ENA_M|I2C_RX_REC_FULL_INT_ST_M)
 #define I2C_LL_SLAVE_TX_EVENT_INTR  (I2C_TXFIFO_EMPTY_INT_ENA_M)
+#define I2C_LL_SCL_WAIT_US_VAL_DEFAULT   (2000)  // 2000 is not default value on esp32, but 0 is not good to be default
 
 /**
  * @brief  Calculate I2C bus frequency
@@ -143,6 +145,44 @@ static inline void i2c_ll_master_set_bus_timing(i2c_dev_t *hw, i2c_hal_clk_confi
  * @param div_b The numerator of the frequency divider factor of the i2c function clock.
  */
 static inline void i2c_ll_master_set_fractional_divider(i2c_dev_t *hw, uint8_t div_a, uint8_t div_b)
+{
+    // Not supported on ESP32
+}
+
+/**
+ * @brief Set fractional divider
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param div_a The denominator of the frequency divider factor of the i2c function clock
+ * @param div_b The numerator of the frequency divider factor of the i2c function clock.
+ */
+static inline void i2c_ll_master_get_fractional_divider(i2c_dev_t *hw, uint32_t *div_a, uint32_t *div_b)
+{
+    // Not supported on ESP32
+}
+
+/**
+ * @brief Get clock configurations from registers
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param div_num div_num
+ * @param clk_sel clk_sel
+ * @param clk_active clk_active
+ */
+static inline void i2c_ll_master_save_clock_configurations(i2c_dev_t *hw, uint32_t *div_num, uint8_t *clk_sel, uint8_t *clk_active)
+{
+    // Not supported on ESP32
+}
+
+/**
+ * @brief Get clock configurations from registers
+ *
+ * @param hw Beginning address of the peripheral registers
+ * @param div_num div_num
+ * @param clk_sel clk_sel
+ * @param clk_active clk_active
+ */
+static inline void i2c_ll_master_restore_clock_configurations(i2c_dev_t *hw, uint32_t div_num, uint8_t clk_sel, uint8_t clk_active)
 {
     // Not supported on ESP32
 }
@@ -671,6 +711,51 @@ static inline void i2c_ll_update(i2c_dev_t *hw)
 }
 
 /**
+ * @brief Enable the bus clock for I2C module
+ *
+ * @param i2c_port I2C port id
+ * @param enable true to enable, false to disable
+ */
+static inline void i2c_ll_enable_bus_clock(int i2c_port, bool enable)
+{
+    if (i2c_port == 0) {
+        uint32_t reg_val = DPORT_READ_PERI_REG(DPORT_PERIP_CLK_EN_REG);
+        reg_val &= ~DPORT_I2C_EXT0_CLK_EN;
+        reg_val |= enable << 7;
+        DPORT_WRITE_PERI_REG(DPORT_PERIP_CLK_EN_REG, reg_val);
+    } else if (i2c_port == 1) {
+        uint32_t reg_val = DPORT_READ_PERI_REG(DPORT_PERIP_CLK_EN_REG);
+        reg_val &= ~DPORT_I2C_EXT1_CLK_EN;
+        reg_val |= enable << 18;
+        DPORT_WRITE_PERI_REG(DPORT_PERIP_CLK_EN_REG, reg_val);
+    }
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define i2c_ll_enable_bus_clock(...) do {(void)__DECLARE_RCC_ATOMIC_ENV; i2c_ll_enable_bus_clock(__VA_ARGS__);} while(0)
+
+/**
+ * @brief Reset the I2C module
+ *
+ * @param i2c_port Group ID
+ */
+static inline void i2c_ll_reset_register(int i2c_port)
+{
+    if (i2c_port == 0) {
+        DPORT_WRITE_PERI_REG(DPORT_PERIP_RST_EN_REG, DPORT_I2C_EXT0_RST);
+        DPORT_WRITE_PERI_REG(DPORT_PERIP_RST_EN_REG, 0);
+    } else if (i2c_port == 1) {
+        DPORT_WRITE_PERI_REG(DPORT_PERIP_RST_EN_REG, DPORT_I2C_EXT1_RST);
+        DPORT_WRITE_PERI_REG(DPORT_PERIP_RST_EN_REG, 0);
+    }
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define i2c_ll_reset_register(...) do {(void)__DECLARE_RCC_ATOMIC_ENV; i2c_ll_reset_register(__VA_ARGS__);} while(0)
+
+/**
  * @brief Set whether slave should auto start, or only start with start signal from master
  *
  * @param hw Beginning address of the peripheral registers
@@ -709,6 +794,19 @@ __attribute__((always_inline))
 static inline void i2c_ll_slave_clear_stretch(i2c_dev_t *dev)
 {
     // Not supported on esp32
+}
+
+/**
+ * @brief Calculate SCL timeout us to reg value
+ *
+ * @param timeout_us timeout value in us
+ * @param src_clk_hz source clock frequency
+ * @return uint32_t reg value
+ */
+static inline uint32_t i2c_ll_calculate_timeout_us_to_reg_val(uint32_t src_clk_hz, uint32_t timeout_us)
+{
+    uint32_t clk_cycle_num_per_us = src_clk_hz / (1 * 1000 * 1000);
+    return clk_cycle_num_per_us * timeout_us;
 }
 
 //////////////////////////////////////////Deprecated Functions//////////////////////////////////////////////////////////

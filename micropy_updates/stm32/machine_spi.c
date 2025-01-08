@@ -1,28 +1,6 @@
-/*
- * This file is part of the MicroPython project, http://micropython.org/
- *
- * The MIT License (MIT)
- *
- * Copyright (c) 2013-2018 Damien P. George
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
+// Copyright (c) 2013-2018 Damien P. George
+// Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 
 #include "../../../../micropy_updates/common/mp_spi_common.h"
 #include "py/runtime.h"
@@ -34,21 +12,21 @@
 #define SPI_UNUSED(x) ((void)x)
 
 /*
-typedef enum _mp_spi_state_t {
+typedef enum _mp_machine_hw_spi_state_t {
     MP_SPI_STATE_STOPPED,
     MP_SPI_STATE_STARTED,
     MP_SPI_STATE_SENDING
-} mp_spi_state_t;
+} mp_machine_hw_spi_state_t;
 
-typedef struct _machine_hw_spi_bus_obj_t {
+typedef struct _mp_machine_hw_spi_bus_obj_t {
     uint8_t host;
     mp_obj_t sck;
     mp_obj_t mosi;
     mp_obj_t miso;
     int16_t active_devices;
-    mp_spi_state_t state;
+    mp_machine_hw_spi_state_t state;
     void *user_data;
-} machine_hw_spi_bus_obj_t;
+} mp_machine_hw_spi_bus_obj_t;
 
 
 typedef struct _machine_hw_spi_obj_t {
@@ -59,7 +37,7 @@ typedef struct _machine_hw_spi_obj_t {
     uint8_t bits;
     uint8_t firstbit;
     mp_obj_t cs;
-    machine_hw_spi_bus_obj_t *spi_bus;
+    mp_machine_hw_spi_bus_obj_t *spi_bus;
     void *user_data;
 } machine_hw_spi_obj_t;
 
@@ -68,7 +46,7 @@ typedef struct _machine_hw_spi_obj_t {
 /******************************************************************************/
 // Implementation of hard SPI for machine module
 
-static machine_hw_spi_bus_obj_t machine_hard_spi_bus_obj[] = {
+static mp_machine_hw_spi_bus_obj_t machine_hard_spi_bus_obj[] = {
     {
         .host = 1,
         .sck = MP_OBJ_NULL,
@@ -125,6 +103,10 @@ static machine_hw_spi_bus_obj_t machine_hard_spi_bus_obj[] = {
     }
 };
 
+
+void machine_hw_spi_bus_deinit_all(void) {}
+
+
 static void machine_hard_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     machine_hw_spi_obj_t *self = MP_OBJ_TO_PTR(self_in);
     spi_print(print, (const spi_t *)(self->spi_bus->user_data), false);
@@ -152,7 +134,7 @@ mp_obj_t machine_hard_spi_make_new(const mp_obj_type_t *type, size_t n_args, siz
     // get static peripheral object
     int spi_id = spi_find_index(args[ARG_id].u_obj);
 
-    machine_hw_spi_bus_obj_t *spi_bus = &machine_hard_spi_bus_obj[spi_id - 1];
+    mp_machine_hw_spi_bus_obj_t *spi_bus = &machine_hard_spi_bus_obj[spi_id - 1];
     machine_hw_spi_obj_t *self = m_new_obj(machine_hw_spi_obj_t);
     self->base.type = &machine_spi_type;
     self->spi_bus = spi_bus;

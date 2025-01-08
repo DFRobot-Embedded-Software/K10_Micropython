@@ -123,6 +123,10 @@ config SOC_SYSTIMER_SUPPORTED
     bool
     default y
 
+config SOC_SUPPORT_COEXISTENCE
+    bool
+    default y
+
 config SOC_AES_SUPPORTED
     bool
     default y
@@ -451,14 +455,6 @@ config SOC_GPIO_SUPPORT_ETM
     bool
     default y
 
-config SOC_GPIO_ETM_EVENTS_PER_GROUP
-    int
-    default 8
-
-config SOC_GPIO_ETM_TASKS_PER_GROUP
-    int
-    default 8
-
 config SOC_GPIO_SUPPORT_RTC_INDEPENDENT
     bool
     default y
@@ -528,6 +524,10 @@ config SOC_I2C_CMD_REG_NUM
     default 8
 
 config SOC_I2C_SUPPORT_SLAVE
+    bool
+    default y
+
+config SOC_I2C_SUPPORT_HW_FSM_RST
     bool
     default y
 
@@ -1127,6 +1127,10 @@ config SOC_CRYPTO_DPA_PROTECTION_SUPPORTED
     bool
     default y
 
+config SOC_ECDSA_USES_MPI
+    bool
+    default y
+
 config SOC_UART_NUM
     int
     default 2
@@ -1156,6 +1160,10 @@ config SOC_UART_SUPPORT_WAKEUP_INT
     default y
 
 config SOC_UART_SUPPORT_FSM_TX_WAIT_SEND
+    bool
+    default y
+
+config SOC_UART_SUPPORT_SLEEP_RETENTION
     bool
     default y
 

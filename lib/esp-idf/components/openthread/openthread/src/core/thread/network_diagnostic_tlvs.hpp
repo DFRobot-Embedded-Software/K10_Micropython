@@ -84,6 +84,7 @@ public:
         kChannelPages        = OT_NETWORK_DIAGNOSTIC_TLV_CHANNEL_PAGES,
         kTypeList            = OT_NETWORK_DIAGNOSTIC_TLV_TYPE_LIST,
         kMaxChildTimeout     = OT_NETWORK_DIAGNOSTIC_TLV_MAX_CHILD_TIMEOUT,
+        kEui64               = OT_NETWORK_DIAGNOSTIC_TLV_EUI64,
         kVersion             = OT_NETWORK_DIAGNOSTIC_TLV_VERSION,
         kVendorName          = OT_NETWORK_DIAGNOSTIC_TLV_VENDOR_NAME,
         kVendorModel         = OT_NETWORK_DIAGNOSTIC_TLV_VENDOR_MODEL,
@@ -95,6 +96,7 @@ public:
         kAnswer              = OT_NETWORK_DIAGNOSTIC_TLV_ANSWER,
         kQueryId             = OT_NETWORK_DIAGNOSTIC_TLV_QUERY_ID,
         kMleCounters         = OT_NETWORK_DIAGNOSTIC_TLV_MLE_COUNTERS,
+        kVendorAppUrl        = OT_NETWORK_DIAGNOSTIC_TLV_VENDOR_APP_URL,
     };
 
     /**
@@ -120,6 +122,12 @@ public:
      *
      */
     static constexpr uint8_t kMaxThreadStackVersionLength = OT_NETWORK_DIAGNOSTIC_MAX_THREAD_STACK_VERSION_TLV_LENGTH;
+
+    /**
+     * Maximum length of Vendor SW Version TLV.
+     *
+     */
+    static constexpr uint8_t kMaxVendorAppUrlLength = OT_NETWORK_DIAGNOSTIC_MAX_VENDOR_APP_URL_TLV_LENGTH;
 
     /**
      * Returns the Type value.
@@ -200,6 +208,12 @@ typedef TlvInfo<Tlv::kChildTable> ChildTableTlv;
 typedef UintTlvInfo<Tlv::kMaxChildTimeout, uint32_t> MaxChildTimeoutTlv;
 
 /**
+ * Defines Eui64 TLV constants and types.
+ *
+ */
+typedef SimpleTlvInfo<Tlv::kEui64, Mac::ExtAddress> Eui64Tlv;
+
+/**
  * Defines Version TLV constants and types.
  *
  */
@@ -228,6 +242,12 @@ typedef StringTlvInfo<Tlv::kVendorSwVersion, Tlv::kMaxVendorSwVersionLength> Ven
  *
  */
 typedef StringTlvInfo<Tlv::kThreadStackVersion, Tlv::kMaxThreadStackVersionLength> ThreadStackVersionTlv;
+
+/**
+ * Defines Vendor App URL TLV constants and types.
+ *
+ */
+typedef StringTlvInfo<Tlv::kVendorAppUrl, Tlv::kMaxVendorAppUrlLength> VendorAppUrlTlv;
 
 /**
  * Defines Child IPv6 Address List TLV constants and types.

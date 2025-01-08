@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -79,6 +79,7 @@ typedef enum {
 #define I2C_LL_SLAVE_RX_EVENT_INTR  (I2C_TRANS_COMPLETE_INT_ENA_M | I2C_RXFIFO_WM_INT_ENA_M | I2C_SLAVE_STRETCH_INT_ENA_M)
 #define I2C_LL_SLAVE_TX_EVENT_INTR  (I2C_TXFIFO_WM_INT_ENA_M)
 #define I2C_LL_RESET_SLV_SCL_PULSE_NUM_DEFAULT   (9)
+#define I2C_LL_SCL_WAIT_US_VAL_DEFAULT   (2000)  // Approximate value for SCL timeout regs (in us).
 
 /**
  * @brief  Calculate I2C bus frequency
@@ -130,6 +131,45 @@ static inline void i2c_ll_update(i2c_dev_t *hw)
 {
     hw->ctr.conf_upgate = 1;
 }
+
+/**
+ * @brief Enable the bus clock for I2C module
+ *
+ * @param i2c_port I2C port id
+ * @param enable true to enable, false to disable
+ */
+static inline void i2c_ll_enable_bus_clock(int i2c_port, bool enable)
+{
+    if (i2c_port == 0) {
+        HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2c0_apb_clk_en = enable;
+    } else if (i2c_port == 1) {
+        HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2c1_apb_clk_en = enable;
+    }
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define i2c_ll_enable_bus_clock(...) do {(void)__DECLARE_RCC_ATOMIC_ENV; i2c_ll_enable_bus_clock(__VA_ARGS__);} while(0)
+
+/**
+ * @brief Reset the I2C module
+ *
+ * @param i2c_port Group ID
+ */
+static inline void i2c_ll_reset_register(int i2c_port)
+{
+    if (i2c_port == 0) {
+        HP_SYS_CLKRST.hp_rst_en1.reg_rst_en_i2c0 = 1;
+        HP_SYS_CLKRST.hp_rst_en1.reg_rst_en_i2c0 = 0;
+    } else if (i2c_port == 1) {
+        HP_SYS_CLKRST.hp_rst_en1.reg_rst_en_i2c1 = 1;
+        HP_SYS_CLKRST.hp_rst_en1.reg_rst_en_i2c1 = 0;
+    }
+}
+
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define i2c_ll_reset_register(...) do {(void)__DECLARE_RCC_ATOMIC_ENV; i2c_ll_reset_register(__VA_ARGS__);} while(0)
 
 /**
  * @brief  Configure the I2C bus timing related register.
@@ -753,6 +793,10 @@ static inline void i2c_ll_set_source_clk(i2c_dev_t *hw, i2c_clock_source_t src_c
 
 }
 
+/// use a macro to wrap the function, force the caller to use it in a critical section
+/// the critical section needs to declare the __DECLARE_RCC_ATOMIC_ENV variable in advance
+#define i2c_ll_set_source_clk(...) do {(void)__DECLARE_RCC_ATOMIC_ENV; i2c_ll_set_source_clk(__VA_ARGS__);} while(0)
+
 /**
  * @brief Enable I2C peripheral controller clock
  *
@@ -762,10 +806,8 @@ static inline void i2c_ll_set_source_clk(i2c_dev_t *hw, i2c_clock_source_t src_c
 static inline void i2c_ll_enable_controller_clock(i2c_dev_t *hw, bool en)
 {
     if (hw == &I2C0) {
-        HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2c0_apb_clk_en = en;
         HP_SYS_CLKRST.peri_clk_ctrl10.reg_i2c0_clk_en = en;
     } else if (hw == &I2C1) {
-        HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2c1_apb_clk_en = en;
         HP_SYS_CLKRST.peri_clk_ctrl10.reg_i2c1_clk_en = en;
     } else if (hw == &LP_I2C) {
         // Do nothing
@@ -848,6 +890,19 @@ __attribute__((always_inline))
 static inline void i2c_ll_slave_clear_stretch(i2c_dev_t *dev)
 {
     dev->scl_stretch_conf.slave_scl_stretch_clr = 1;
+}
+
+/**
+ * @brief Calculate SCL timeout us to reg value
+ *
+ * @param timeout_us timeout value in us
+ * @param src_clk_hz source clock frequency
+ * @return uint32_t reg value
+ */
+static inline uint32_t i2c_ll_calculate_timeout_us_to_reg_val(uint32_t src_clk_hz, uint32_t timeout_us)
+{
+    uint32_t clk_cycle_num_per_us = src_clk_hz / (1 * 1000 * 1000);
+    return 31 - __builtin_clz(clk_cycle_num_per_us * timeout_us);
 }
 
 //////////////////////////////////////////Deprecated Functions//////////////////////////////////////////////////////////

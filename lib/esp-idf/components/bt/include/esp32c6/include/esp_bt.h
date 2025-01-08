@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -16,6 +16,7 @@
 #include "nimble/nimble_npl.h"
 #include "../../../../controller/esp32c6/esp_bt_cfg.h"
 #include "hal/efuse_hal.h"
+#include "esp_private/esp_modem_clock.h"
 
 #ifdef CONFIG_BT_LE_HCI_INTERFACE_USE_UART
 #include "driver/uart.h"
@@ -155,7 +156,7 @@ esp_err_t esp_ble_tx_power_set_enhanced(esp_ble_enhanced_power_type_t power_type
  */
 esp_power_level_t esp_ble_tx_power_get_enhanced(esp_ble_enhanced_power_type_t power_type, uint16_t handle);
 
-#define CONFIG_VERSION  0x20231124
+#define CONFIG_VERSION  0x20240422
 #define CONFIG_MAGIC    0x5A5AA5A5
 
 /**
@@ -196,13 +197,6 @@ typedef struct {
     uint8_t controller_run_cpu;                      /*!< CPU core on which the controller runs */
     uint8_t enable_qa_test;                          /*!< Enable quality assurance (QA) testing */
     uint8_t enable_bqb_test;                         /*!< Enable Bluetooth Qualification Test (BQB) testing */
-    uint8_t enable_uart_hci;                         /*!< Enable UART HCI (Host Controller Interface) */
-    uint8_t ble_hci_uart_port;                       /*!< UART port number for Bluetooth HCI */
-    uint32_t ble_hci_uart_baud;                      /*!< Baud rate for Bluetooth HCI UART */
-    uint8_t ble_hci_uart_data_bits;                  /*!< Number of data bits for Bluetooth HCI UART */
-    uint8_t ble_hci_uart_stop_bits;                  /*!< Number of stop bits for Bluetooth HCI UART */
-    uint8_t ble_hci_uart_flow_ctrl;                  /*!< Flow control settings for Bluetooth HCI UART */
-    uint8_t ble_hci_uart_uart_parity;                /*!< Parity settings for Bluetooth HCI UART */
     uint8_t enable_tx_cca;                           /*!< Enable Transmit Clear Channel Assessment (TX CCA) */
     uint8_t cca_rssi_thresh;                         /*!< RSSI threshold for Transmit Clear Channel Assessment (CCA) */
     uint8_t sleep_en;                                /*!< Enable sleep mode */
@@ -253,13 +247,6 @@ typedef struct {
     .controller_run_cpu         = 0,                                                    \
     .enable_qa_test             = RUN_QA_TEST,                                          \
     .enable_bqb_test            = RUN_BQB_TEST,                                         \
-    .enable_uart_hci            = HCI_UART_EN,                                          \
-    .ble_hci_uart_port          = DEFAULT_BT_LE_HCI_UART_PORT,                          \
-    .ble_hci_uart_baud          = DEFAULT_BT_LE_HCI_UART_BAUD,                          \
-    .ble_hci_uart_data_bits     = DEFAULT_BT_LE_HCI_UART_DATA_BITS,                     \
-    .ble_hci_uart_stop_bits     = DEFAULT_BT_LE_HCI_UART_STOP_BITS,                     \
-    .ble_hci_uart_flow_ctrl     = DEFAULT_BT_LE_HCI_UART_FLOW_CTRL,                     \
-    .ble_hci_uart_uart_parity   = DEFAULT_BT_LE_HCI_UART_PARITY,                        \
     .enable_tx_cca              = DEFAULT_BT_LE_TX_CCA_ENABLED,                         \
     .cca_rssi_thresh            = 256 - DEFAULT_BT_LE_CCA_RSSI_THRESH,                  \
     .sleep_en                   = NIMBLE_SLEEP_ENABLE,                                  \
@@ -427,6 +414,12 @@ extern int esp_ble_hw_get_static_addr(esp_ble_addr_t *addr);
  */
 void esp_ble_controller_log_dump_all(bool output);
 #endif // CONFIG_BT_LE_CONTROLLER_LOG_ENABLED
+
+#if CONFIG_PM_ENABLE
+modem_clock_lpclk_src_t esp_bt_get_lpclk_src(void);
+
+void esp_bt_set_lpclk_src(modem_clock_lpclk_src_t clk_src);
+#endif // CONFIG_PM_ENABLE
 
 #ifdef __cplusplus
 }

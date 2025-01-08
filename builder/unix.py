@@ -1,3 +1,5 @@
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 import os
 import sys
 import shutil
@@ -85,7 +87,7 @@ def build_commands(_, extra_args, script_dir, lv_cflags, board):
     unix_cmd.extend(
         [
             f'LV_CFLAGS="{lv_cflags}"',
-            f'LV_PORT=unix',
+            f'LV_PORT={REAL_PORT}',
             f'USER_C_MODULES="{script_dir}/ext_mod"',
             (
                 '"CFLAGS_EXTRA='
@@ -113,7 +115,13 @@ def build_commands(_, extra_args, script_dir, lv_cflags, board):
 
 
 def build_manifest(
-    _, script_dir, lvgl_api, displays, indevs, frozen_manifest
+    _,
+    script_dir,
+    lvgl_api,
+    displays,
+    indevs,
+    expanders,
+    frozen_manifest
 ):
     global SCRIPT_PATH
 
@@ -123,10 +131,8 @@ def build_manifest(
 
     manifest_path = 'lib/micropython/ports/unix/variants/manifest.py'
 
-    generate_manifest(
-        script_dir, lvgl_api, manifest_path, displays,
-        indevs, frozen_manifest
-    )
+    generate_manifest(script_dir, lvgl_api, manifest_path, displays,
+                      indevs, expanders, frozen_manifest)
 
 
 def force_clean(clean_mpy_cross):

@@ -1,28 +1,6 @@
-/*
- * This file is part of the MicroPython project, http://micropython.org/
- *
- * The MIT License (MIT)
- *
- * Copyright (c) 2020-2021 Damien P. George
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- * THE SOFTWARE.
- */
+// Copyright (c) 2020-2021 Damien P. George
+// Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 
 #include "py/runtime.h"
 #include "py/mphal.h"
@@ -94,21 +72,21 @@
 #define IS_VALID_MISO(spi, pin)     (((pin) & 3) == 0 && IS_VALID_PERIPH(spi, pin))
 
 /*
-typedef enum _mp_spi_state_t {
+typedef enum _mp_machine_hw_spi_state_t {
     MP_SPI_STATE_STOPPED,
     MP_SPI_STATE_STARTED,
     MP_SPI_STATE_SENDING
-} mp_spi_state_t;
+} mp_machine_hw_spi_state_t;
 
-typedef struct _machine_hw_spi_bus_obj_t {
+typedef struct _mp_machine_hw_spi_bus_obj_t {
     uint8_t host;
     mp_obj_t sck;
     mp_obj_t mosi;
     mp_obj_t miso;
     int16_t active_devices;
-    mp_spi_state_t state;
+    mp_machine_hw_spi_state_t state;
     void *user_data;
-} machine_hw_spi_bus_obj_t;
+} mp_machine_hw_spi_bus_obj_t;
 
 
 typedef struct _machine_hw_spi_obj_t {
@@ -119,13 +97,13 @@ typedef struct _machine_hw_spi_obj_t {
     uint8_t bits;
     uint8_t firstbit;
     mp_obj_t cs;
-    machine_hw_spi_bus_obj_t *spi_bus;
+    mp_machine_hw_spi_bus_obj_t *spi_bus;
     void *user_data;
 } machine_hw_spi_obj_t;
 
 */
 
-machine_hw_spi_bus_obj_t rp2_machine_spi_bus_obj[] = {
+mp_machine_hw_spi_bus_obj_t rp2_machine_spi_bus_obj[] = {
     {
         .host = 0,
         .sck = MP_OBJ_NULL,
@@ -146,6 +124,7 @@ machine_hw_spi_bus_obj_t rp2_machine_spi_bus_obj[] = {
     }
 };
 
+void machine_hw_spi_bus_deinit_all(void) {}
 
 mp_obj_t machine_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum { ARG_id, ARG_baudrate, ARG_polarity, ARG_phase, ARG_bits, ARG_firstbit, ARG_cs, ARG_sck, ARG_mosi, ARG_miso };
@@ -175,7 +154,7 @@ mp_obj_t machine_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_t n
     machine_hw_spi_obj_t *self = m_new_obj(machine_hw_spi_obj_t);
     self->base.type = &machine_spi_type;
 
-    machine_hw_spi_bus_obj_t *spi_bus = &rp2_machine_spi_bus_obj[spi_id];
+    mp_machine_hw_spi_bus_obj_t *spi_bus = &rp2_machine_spi_bus_obj[spi_id];
     if (spi_bus->sck == MP_OBJ_NULL) {
         if (spi_id == 0) {
             spi_bus->sck = mp_obj_new_int(MICROPY_HW_SPI0_SCK);

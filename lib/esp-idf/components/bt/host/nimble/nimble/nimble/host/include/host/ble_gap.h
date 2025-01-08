@@ -156,6 +156,15 @@ struct hci_conn_update;
 #define BLE_GAP_EVENT_SUBRATE_CHANGE        27
 #define BLE_GAP_EVENT_VS_HCI                28
 #define BLE_GAP_EVENT_REATTEMPT_COUNT       29
+#define BLE_GAP_EVENT_AUTHORIZE             30
+#define BLE_GAP_EVENT_TEST_UPDATE           31
+#define BLE_GAP_EVENT_DATA_LEN_CHG          32
+#define BLE_GAP_EVENT_LINK_ESTAB            33
+
+/* DTM events */
+#define BLE_GAP_DTM_TX_START_EVT            0
+#define BLE_GAP_DTM_RX_START_EVT            1
+#define BLE_GAP_DTM_END_EVT                 2
 
 /*** Reason codes for the subscribe GAP event. */
 
@@ -186,6 +195,10 @@ struct hci_conn_update;
 
 /** @} */
 
+/* Response values for gatt read/write authorization event */
+#define BLE_GAP_AUTHORIZE_ACCEPT            1
+#define BLE_GAP_AUTHORIZE_REJECT            2
+
 /** Connection security state */
 struct ble_gap_sec_state {
     /** If connection is encrypted */
@@ -199,6 +212,9 @@ struct ble_gap_sec_state {
 
     /** Size of a key used for encryption */
     unsigned key_size:5;
+
+    /** Current device security state*/
+    unsigned authorize:1;
 };
 
 /** Advertising parameters */
@@ -521,6 +537,25 @@ struct ble_gap_event {
             /** The handle of the relevant connection. */
             uint16_t conn_handle;
         } connect;
+
+        /**
+         * Represents a successful Link establishment attempt.  Valid for the following event
+         * types:
+         *     o BLE_GAP_EVENT_LINK_ESTAB
+         */
+
+        struct {
+            /**
+             * The final status of the link establishment;
+             *     o 0: the connection was successfully established.
+             *     o BLE host error code: the connection attempt failed for
+             *       the specified reason.
+             */
+            int status;
+
+           /** The handle of the relevant connection. */
+            uint16_t conn_handle;
+        } link_estab;
 
         /**
          * Represents a terminated connection.  Valid for the following event
@@ -1096,6 +1131,31 @@ struct ble_gap_event {
         } vs_hci;
 #endif
 
+        /**
+         * GATT Authorization Event. Ask the user to authorize a GATT
+         * read/write operation.
+         *
+         * Valid for the following event types:
+         * o BLE_GAP_EVENT_AUTHORIZE
+         *
+         * Valid responses from user:
+         * o BLE_GAP_AUTHORIZE_ACCEPT
+         * o BLE_GAP_AUTHORIZE_REJECT
+         */
+        struct {
+            /* Connection Handle */
+            uint16_t conn_handle;
+
+            /* Attribute handle of the attribute being accessed. */
+            uint16_t attr_handle;
+
+            /* Weather the operation is a read or write operation. */
+            int is_read;
+
+            /* User's response */
+            int out_response;
+        } authorize;
+
 #if MYNEWT_VAL(BLE_ENABLE_CONN_REATTEMPT)
 	/**
 	 * Represents a event mentioning connection reattempt
@@ -1112,6 +1172,53 @@ struct ble_gap_event {
 	    uint8_t count;
         } reattempt_cnt;
 #endif
+        /**
+	 * Represent a event for DTM test results
+	 *
+	 * Valid for the following event types:
+	 *      o BLE_GAP_EVENT_TEST_UPDATE
+	 */
+	struct {
+            /* Indicate DTM operation status */
+	    uint8_t status;
+
+	    /* DTM state change event. Can be following constants:
+	     *    o BLE_GAP_DTM_TX_START_EVT
+	     *    o BLE_GAP_DTM_RX_START_EVT
+	     *    o BLE_GAP_DTM_END_EVT
+	     */
+            uint8_t update_evt;
+
+	    /* Number of packets received.
+	     *
+	     * Valid only for BLE_GAP_DTM_END_EVT
+	     * shall be 0 for a transmitter.
+	     */
+            uint16_t num_pkt;
+	} dtm_state;
+
+        /**
+	 * Represent an event for LE Data length change
+	 *
+	 * Valid for the following event types:
+	 *      o BLE_GAP_EVENT_DATA_LEN_CHG
+	 */
+	struct {
+            /* Connection handle */
+	    uint16_t conn_handle;
+
+	    /* Max Tx Payload octotes */
+	    uint16_t max_tx_octets;
+
+	    /* Max Tx Time */
+	    uint16_t max_tx_time;
+
+	    /* Max Rx payload octet */
+	    uint16_t max_rx_octets;
+
+	    /* Max Rx Time */
+	    uint16_t max_rx_time;
+	} data_len_chg;
     };
 };
 
@@ -2598,6 +2705,71 @@ int ble_gap_set_path_loss_reporting_param(uint16_t conn_handle, uint8_t high_thr
  * @return                  0 on success; nonzero on failure.
  */
 int ble_gap_set_data_related_addr_change_param(uint8_t adv_handle, uint8_t change_reason);
+
+/**
+ * Start a test where the DUT generates reference packets at a fixed interval.
+ *
+ * @param tx_chan          Channel for sending test data,
+ *                         tx_channel = (Frequency -2402)/2, tx_channel range = 0x00-0x27,
+ *                         Frequency range = 2402 MHz to 2480 MHz.
+ *
+ * @param test_data_len    Length in bytes of payload data in each packet
+ * @param payload	   Packet Payload type. Valid range: 0x00 - 0x07
+ *
+ * @return                 0 on success; nonzero on failure
+ */
+
+int ble_gap_dtm_tx_start(uint8_t tx_chan, uint8_t test_data_len, uint8_t payload);
+
+/**
+ * Start a test where the DUT receives test reference packets at a fixed interval.
+ *
+ * @param rx_chan          Channel for test data reception,
+ *                         rx_channel = (Frequency -2402)/2, tx_channel range = 0x00-0x27,
+ *                         Frequency range = 2402 MHz to 2480 MHz.
+ *
+ * @return                 0 on success; nonzero on failure
+ */
+
+int ble_gap_dtm_rx_start(uint8_t rx_chan);
+
+/**
+ * Stop any test which is in progress
+ *
+ * @return	           0 on success; nonzero on failure
+ */
+
+int ble_gap_dtm_stop(void);
+
+/**
+ * Start a test where the DUT generates reference packets at a fixed interval.
+ *
+ * @param tx_chan          Channel for sending test data,
+ *                         tx_channel = (Frequency -2402)/2, tx_channel range = 0x00-0x27,
+ *                         Frequency range: 2402 MHz to 2480 MHz
+ *
+ * @param test_data_len    Length in bytes of payload data in each packet
+ * @param payload	   Packet payload type. Valid range: 0x00 - 0x07
+ * @param phy              Phy used by transmitter 1M phy: 0x01, 2M phy:0x02, coded phy:0x03.
+ *
+ * @return                 0 on sucess; nonzero on failure
+ */
+int ble_gap_dtm_enh_tx_start(uint8_t tx_chan, uint8_t test_data_len, uint8_t payload,
+		             uint8_t phy);
+
+/**
+ * Start a test where the DUT receives test reference packets at fixed interval
+ *
+ * @param  rx_chan        Channel for test data reception,
+ *                        rx_channel = (Frequency -2402)/2, tx_channel range = 0x00-0x27,
+ *                        Frequency range: 2402 MHz to 2480 MHz
+ *
+ * @param index 	  modulation index, 0x00:standard modulation index, 0x01:stable modulation index
+ * @param phy             Phy type used by the receiver, 1M phy: 0x01, 2M phy:0x02, coded phy:0x03
+ *
+ * @return                0 on success; nonzero on failure
+ */
+int ble_gap_dtm_enh_rx_start(uint8_t rx_chan, uint8_t index, uint8_t phy);
 
 #ifdef __cplusplus
 }

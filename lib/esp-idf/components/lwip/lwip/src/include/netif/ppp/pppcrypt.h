@@ -97,13 +97,19 @@ extern "C" {
  * Map hashes and ciphers functions to mbed TLS
  */
 #if LWIP_USE_EXTERNAL_MBEDTLS
+#include "mbedtls/des.h"
+#include "mbedtls/md5.h"
+#include "mbedtls/sha1.h"
 
+/* MD4 has been removed from mbedtls >= 3.0 as weak.
+ * Therefore, we do not support authentications that require MD4: MS-CHAP
 #define lwip_md4_context mbedtls_md4_context
 #define lwip_md4_init mbedtls_md4_init
 #define lwip_md4_starts mbedtls_md4_starts
 #define lwip_md4_update mbedtls_md4_update
 #define lwip_md4_finish mbedtls_md4_finish
 #define lwip_md4_free mbedtls_md4_free
+ */
 
 #define lwip_md5_context mbedtls_md5_context
 #define lwip_md5_init mbedtls_md5_init
@@ -125,11 +131,14 @@ extern "C" {
 #define lwip_des_crypt_ecb mbedtls_des_crypt_ecb
 #define lwip_des_free mbedtls_des_free
 
+/* ARC4 has been removed from mbedtls >= 3.0 as weak.
+ * Therefore, we do not support authentications that require ARC4: MPPE
 #define lwip_arc4_context mbedtls_arc4_context
 #define lwip_arc4_init mbedtls_arc4_init
 #define lwip_arc4_setup mbedtls_arc4_setup
 #define lwip_arc4_crypt(context, buffer, length) mbedtls_arc4_crypt(context, length, buffer, buffer)
 #define lwip_arc4_free mbedtls_arc4_free
+ */
 
 #endif /* LWIP_USE_EXTERNAL_MBEDTLS */
 

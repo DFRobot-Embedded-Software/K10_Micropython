@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: CC0-1.0
  *
@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "sdkconfig.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_event.h"
@@ -35,7 +36,6 @@
 #include "mdns.h"
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
-#include "sdkconfig.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -43,6 +43,10 @@
 #include "openthread/error.h"
 #include "openthread/logging.h"
 #include "openthread/tasklet.h"
+
+#if CONFIG_OPENTHREAD_STATE_INDICATOR_ENABLE
+#include "ot_led_strip.h"
+#endif
 
 #define TAG "esp_ot_br"
 
@@ -69,26 +73,15 @@ static void ot_task_worker(void *aContext)
 
     // Initialize the OpenThread stack
     ESP_ERROR_CHECK(esp_openthread_init(&config));
-
-    // Initialize border routing features
-    esp_openthread_lock_acquire(portMAX_DELAY);
     ESP_ERROR_CHECK(esp_netif_attach(openthread_netif, esp_openthread_netif_glue_init(&config)));
-
+    esp_openthread_lock_acquire(portMAX_DELAY);
     (void)otLoggingSetLevel(CONFIG_LOG_DEFAULT_LEVEL);
     esp_openthread_cli_init();
-
-#if CONFIG_OPENTHREAD_BR_AUTO_START
-    ESP_ERROR_CHECK(esp_openthread_border_router_init());
-    otOperationalDatasetTlvs dataset;
-    otError error = otDatasetGetActiveTlvs(esp_openthread_get_instance(), &dataset);
-    ESP_ERROR_CHECK(esp_openthread_auto_start((error == OT_ERROR_NONE) ? &dataset : NULL));
-#endif // CONFIG_OPENTHREAD_BR_AUTO_START
-
     esp_cli_custom_command_init();
+    esp_openthread_cli_create_task();
     esp_openthread_lock_release();
 
     // Run the main loop
-    esp_openthread_cli_create_task();
     esp_openthread_launch_mainloop();
 
     // Clean up
@@ -98,36 +91,15 @@ static void ot_task_worker(void *aContext)
     vTaskDelete(NULL);
 }
 
-void app_main(void)
+void ot_br_init(void *ctx)
 {
-    // Used eventfds:
-    // * netif
-    // * task queue
-    // * border router
-    esp_vfs_eventfd_config_t eventfd_config = {
-#if CONFIG_OPENTHREAD_RADIO_NATIVE || CONFIG_OPENTHREAD_RADIO_SPINEL_SPI
-        // * radio driver (A native radio device needs a eventfd for radio driver.)
-        // * SpiSpinelInterface (The Spi Spinel Interface needs a eventfd.)
-        // The above will not exist at the same time.
-        .max_fds = 4,
-#else
-        .max_fds = 3,
-#endif
-    };
-    ESP_ERROR_CHECK(esp_vfs_eventfd_register(&eventfd_config));
-
-    ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
 #if CONFIG_EXAMPLE_CONNECT_WIFI
 #if CONFIG_OPENTHREAD_BR_AUTO_START
     ESP_ERROR_CHECK(example_connect());
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MAX_MODEM));
 #if CONFIG_ESP_COEX_SW_COEXIST_ENABLE && CONFIG_OPENTHREAD_RADIO_NATIVE
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
     ESP_ERROR_CHECK(esp_coex_wifi_i154_enable());
 #else
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
 #if CONFIG_EXTERNAL_COEX_ENABLE
     ot_br_external_coexist_init();
@@ -148,5 +120,44 @@ void app_main(void)
 
     ESP_ERROR_CHECK(mdns_init());
     ESP_ERROR_CHECK(mdns_hostname_set("esp-ot-br"));
-    xTaskCreate(ot_task_worker, "ot_br_main", 20480, xTaskGetCurrentTaskHandle(), 5, NULL);
+
+    // Initialize border routing features
+    esp_openthread_lock_acquire(portMAX_DELAY);
+#if CONFIG_OPENTHREAD_STATE_INDICATOR_ENABLE
+    ESP_ERROR_CHECK(esp_openthread_state_indicator_init(esp_openthread_get_instance()));
+#endif
+
+#if CONFIG_OPENTHREAD_BR_AUTO_START
+    ESP_ERROR_CHECK(esp_openthread_border_router_init());
+    otOperationalDatasetTlvs dataset;
+    otError error = otDatasetGetActiveTlvs(esp_openthread_get_instance(), &dataset);
+    ESP_ERROR_CHECK(esp_openthread_auto_start((error == OT_ERROR_NONE) ? &dataset : NULL));
+#endif // CONFIG_OPENTHREAD_BR_AUTO_START
+
+    esp_openthread_lock_release();
+    vTaskDelete(NULL);
+}
+
+void app_main(void)
+{
+    // Used eventfds:
+    // * netif
+    // * task queue
+    // * border router
+    esp_vfs_eventfd_config_t eventfd_config = {
+#if CONFIG_OPENTHREAD_RADIO_NATIVE || CONFIG_OPENTHREAD_RADIO_SPINEL_SPI
+        // * radio driver (A native radio device needs a eventfd for radio driver.)
+        // * SpiSpinelInterface (The Spi Spinel Interface needs a eventfd.)
+        // The above will not exist at the same time.
+        .max_fds = 4,
+#else
+        .max_fds = 3,
+#endif
+    };
+    ESP_ERROR_CHECK(esp_vfs_eventfd_register(&eventfd_config));
+    ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    xTaskCreate(ot_task_worker, "ot_br_main", 8192, xTaskGetCurrentTaskHandle(), 5, NULL);
+    xTaskCreate(ot_br_init, "ot_br_init", 6144, NULL, 4, NULL);
 }

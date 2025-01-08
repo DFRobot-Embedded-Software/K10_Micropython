@@ -1113,6 +1113,11 @@
 #define DNS_MAX_NAME_LENGTH             256
 #endif
 
+/** DNS maximum number of ip address stored per host. */
+#if !defined DNS_MAX_HOST_IP || defined __DOXYGEN__
+#define DNS_MAX_HOST_IP                 1
+#endif
+
 /** The maximum of DNS servers
  * The first server can be initialized automatically by defining
  * DNS_SERVER_ADDRESS(ipaddr), where 'ipaddr' is an 'ip_addr_t*'
@@ -1155,6 +1160,20 @@
 #if !defined DNS_LOCAL_HOSTLIST || defined __DOXYGEN__
 #define DNS_LOCAL_HOSTLIST              0
 #endif /* DNS_LOCAL_HOSTLIST */
+
+/** LWIP_DNS_SETSERVER_WITH_NETIF: If this is turned on, the dns_setserver_with_netif() is enabled and called
+ * from all internal modules (instead of dns_setserver()) allowing to setup a user callback to collect DNS server
+ * information acquired by the related network interface.
+ * This could be used to overcome the LWIP limitation of using DNS servers
+ * globally, which could in some cases overwrite distinct DNS server information of one netif by another.
+ * If you want to use this option, you would have to set LWIP_DNS_SETSERVER_WITH_NETIF=1 and:
+ * 1) Register DNS setserver callback using dns_setserver_callback() and collect the DNS server information
+ * in the callback and store it separately for each netif.
+ * 2) Restore the actual DNS server information using dns_setserver() before every DNS lookup.
+ * */
+#if !defined LWIP_DNS_SETSERVER_WITH_NETIF || defined __DOXYGEN__
+#define LWIP_DNS_SETSERVER_WITH_NETIF   0
+#endif /* LWIP_DNS_SETSERVER_WITH_NETIF */
 
 /** If this is turned on, the local host-list can be dynamically changed
  *  at runtime. */
@@ -2405,7 +2424,7 @@
 #endif
 
 /**
- * when LWIP_FORCE_ROUTER_FORWARDING is enbaled in lwip, the router flag in NA packet will always
+ * when LWIP_FORCE_ROUTER_FORWARDING is enabled in lwip, the router flag in NA packet will always
  * set to 1, otherwise, never set router flag for NA packets.
  */
 #if !defined LWIP_FORCE_ROUTER_FORWARDING || defined __DOXYGEN__

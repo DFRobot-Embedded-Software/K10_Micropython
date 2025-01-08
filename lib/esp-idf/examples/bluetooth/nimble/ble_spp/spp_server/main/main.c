@@ -141,7 +141,7 @@ ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
     int rc;
 
     switch (event->type) {
-    case BLE_GAP_EVENT_CONNECT:
+    case BLE_GAP_EVENT_LINK_ESTAB:
         /* A new connection was established or a connection attempt failed. */
         MODLOG_DFLT(INFO, "connection %s; status=%d ",
                     event->connect.status == 0 ? "established" : "failed",
@@ -367,7 +367,7 @@ void ble_server_uart_task(void *pvParameters)
                         /* Check if client has subscribed to notifications */
                         if (conn_handle_subs[i]) {
                             struct os_mbuf *txom;
-                            txom = ble_hs_mbuf_from_flat(ntf, sizeof(ntf));
+                            txom = ble_hs_mbuf_from_flat(ntf, event.size);
                             rc = ble_gatts_notify_custom(i, ble_spp_svc_gatt_read_val_handle,
                                                          txom);
                             if (rc == 0) {
@@ -377,6 +377,8 @@ void ble_server_uart_task(void *pvParameters)
                             }
                         }
                     }
+
+		    free(ntf);
                 }
                 break;
             default:

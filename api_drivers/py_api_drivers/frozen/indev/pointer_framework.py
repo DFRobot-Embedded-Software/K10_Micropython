@@ -1,3 +1,5 @@
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 import lvgl as lv  # NOQA
 import _indev_base
 import micropython  # NOQA
@@ -11,6 +13,7 @@ class PointerDriver(_indev_base.IndevBase):
     def __init__(self, touch_cal=None, startup_rotation=lv.DISPLAY_ROTATION._0, debug=False):  # NOQA
         self._last_x = -1
         self._last_y = -1
+
         self._last_state = self.RELEASED
 
         super().__init__(debug=debug)
@@ -24,15 +27,14 @@ class PointerDriver(_indev_base.IndevBase):
         self._orig_width = self._width
         self._orig_height = self._height
         self._set_type(lv.INDEV_TYPE.POINTER)  # NOQA
-        self._cal_running = None
         self._startup_rotation = startup_rotation
 
         self._indev_drv.enable(True)
 
     def enable_input_priority(self):
-        self._indev_drv.set_mode(lv.INDEV_MODE.EVENT)
+        self._indev_drv.set_mode(lv.INDEV_MODE.EVENT)  # NOQA
         self.__timer = lv.timer_create(self.__ip_callback, 33, None)  # NOQA
-        self.__timer.set_repeat_count(-1)
+        self.__timer.set_repeat_count(-1)  # NOQA
 
     def __ip_callback(self, _):
         self.read()
@@ -45,37 +47,17 @@ class PointerDriver(_indev_base.IndevBase):
         if last_state == self.PRESSED:
             lv.refr_now(self._disp_drv)
 
-    def __cal_callback(self, alphaX, betaX, deltaX, alphaY, betaY, deltaY):
-        self._cal.alphaX = alphaX
-        self._cal.betaX = betaX
-        self._cal.deltaX = deltaX
-        self._cal.alphaY = alphaY
-        self._cal.betaY = betaY
-        self._cal.deltaY = deltaY
-        self._cal.save()
-        self._cal_running = None
-
-    def calibrate(self, update_handler=None):
-        if self._cal_running:
-            return
-
-        import time
+    def calibrate(self):
         import touch_calibrate
-        self._cal_running = touch_calibrate.TPCal(self, self.__cal_callback)
-        while self._cal_running:
-            if update_handler is not None:
-                delay = update_handler()
-                time.sleep_ms(delay)
-            else:
-                time.sleep_ms(33)
 
-        self._indev_drv.set_read_cb(self._read)
+        if touch_calibrate.calibrate(self, self._cal):  # NOQA
+            self._cal.save()
+            return True
+
+        return False
 
     @property
     def is_calibrated(self):
-        if self._cal_running:
-            return False
-
         cal = self._cal
 
         return None not in (
@@ -84,7 +66,9 @@ class PointerDriver(_indev_base.IndevBase):
             cal.deltaX,
             cal.alphaY,
             cal.betaY,
-            cal.deltaY
+            cal.deltaY,
+            cal.mirrorX,
+            cal.mirrorY
         )
 
     def _get_coords(self):
@@ -99,18 +83,23 @@ class PointerDriver(_indev_base.IndevBase):
             x = int(round(x * cal.alphaX + y * cal.betaX + cal.deltaX))
             y = int(round(x * cal.alphaY + y * cal.betaY + cal.deltaY))
 
-        if (
-            self._startup_rotation == lv.DISPLAY_ROTATION._180 or  # NOQA
-            self._startup_rotation == lv.DISPLAY_ROTATION._270  # NOQA
-        ):
-            x = self._orig_width - x - 1
-            y = self._orig_height - y - 1
+            if cal.mirrorX:
+                x = self._orig_width - x - 1
+            if cal.mirrorY:
+                y = self._orig_height - y - 1
+        else:
+            if (
+                self._startup_rotation == lv.DISPLAY_ROTATION._180 or  # NOQA
+                self._startup_rotation == lv.DISPLAY_ROTATION._270  # NOQA
+            ):
+                x = self._orig_width - x - 1
+                y = self._orig_height - y - 1
 
-        if (
-            self._startup_rotation == lv.DISPLAY_ROTATION._90 or  # NOQA
-            self._startup_rotation == lv.DISPLAY_ROTATION._270  # NOQA
-        ):
-            x, y = self._orig_height - y - 1, x
+            if (
+                self._startup_rotation == lv.DISPLAY_ROTATION._90 or  # NOQA
+                self._startup_rotation == lv.DISPLAY_ROTATION._270  # NOQA
+            ):
+                x, y = self._orig_height - y - 1, x
 
         return x, y
 
@@ -135,9 +124,15 @@ class PointerDriver(_indev_base.IndevBase):
 
         if (
             self._debug and
-            (x != self._last_x or y != self._last_y or self._last_state != state)  # NOQA
+            (x != self._last_x or
+             y != self._last_y or
+             self._last_state != state)
         ):
-            print(f'{self.__class__.__name__}(raw_x={self._last_x}, raw_y={self._last_y}, x={data.point.x}, y={data.point.y}, state={"PRESSED" if data.state else "RELEASED"})')  # NOQA
+            template = '{}(raw_x={}, raw_y={}, x={}, y={}, state={})'
+            print(template.format(
+                self.__class__.__name__,
+                x, y, data.point.x, data.point.y,
+                "PRESSED" if data.state else "RELEASED"))
 
         self._last_state = state
         self._last_x, self._last_y = x, y
@@ -162,4 +157,3 @@ class PointerDriver(_indev_base.IndevBase):
 
     def reset_long_press(self):
         self._indev_drv.reset_long_press()
-

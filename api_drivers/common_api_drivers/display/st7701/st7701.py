@@ -1,3 +1,5 @@
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 from micropython import const  # NOQA
 
 import lvgl as lv  # NOQA
@@ -211,7 +213,7 @@ class ST7701(rgb_display_framework.RGBDisplayDriver):
         )
 
     def _spi_3wire_init(self, type):  # NOQA
-        if type < 1 or type > 16:
+        if type < 1 or type > 17:
             raise RuntimeError('Invalid display type')
 
         mod_name = f'_st7701_type{type}'

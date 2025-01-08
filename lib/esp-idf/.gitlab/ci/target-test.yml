@@ -21,12 +21,12 @@
     when: always
     paths:
       - XUNIT_RESULT.xml
-      - pytest_embedded_log/
+      - pytest-embedded/
     reports:
       junit: XUNIT_RESULT.xml
     expire_in: 1 week
   script:
-    - retry_failed git clone $KNOWN_FAILURE_CASES_REPO known_failure_cases
+    - python tools/ci/get_known_failure_cases_file.py
     # get runner env config file
     - retry_failed git clone $TEST_ENV_CONFIG_REPO
     - python $CHECKOUT_REF_SCRIPT ci-test-runner-configs ci-test-runner-configs
@@ -46,7 +46,7 @@
     - run_cmd pytest $TEST_DIR
       -m \"${markers}\"
       --junitxml=XUNIT_RESULT.xml
-      --ignore-result-files known_failure_cases/known_failure_cases.txt
+      --ignore-result-files ${KNOWN_FAILURE_CASES_FILE_NAME}
       --parallel-count ${CI_NODE_TOTAL:-1}
       --parallel-index ${CI_NODE_INDEX:-1}
       ${PYTEST_EXTRA_FLAGS}
@@ -228,6 +228,15 @@ pytest_examples_esp32c6_generic:
     - job: build_pytest_examples_esp32c6
       artifacts: false
   tags: [ esp32c6, generic ]
+
+pytest_examples_esp32c6_usj_device:
+  extends:
+    - .pytest_examples_dir_template
+    - .rules:test:example_test-esp32c6
+  needs:
+    - job: build_pytest_examples_esp32c6
+      artifacts: false
+  tags: [ esp32c6, usj_device ]
 
 pytest_examples_esp32h2_generic:
   extends:
@@ -462,6 +471,15 @@ pytest_examples_esp32_ethernet_vlan:
     - job: build_pytest_examples_esp32
       artifacts: false
   tags: [ esp32, ethernet_vlan ]
+
+pytest_examples_esp32_ethernet_ip101:
+  extends:
+    - .pytest_examples_dir_template
+    - .rules:test:example_test-esp32
+  needs:
+    - job: build_pytest_examples_esp32
+      artifacts: false
+  tags: [ esp32, eth_ip101 ]
 
 pytest_examples_esp32_ethernet_bridge:
   extends:
@@ -714,6 +732,15 @@ pytest_components_esp32_sdio:
     - job: build_pytest_components_esp32
       artifacts: false
   tags: [ esp32, sdio_master_slave ]
+
+pytest_components_esp32_ip101:
+  extends:
+    - .pytest_components_dir_template
+    - .rules:test:component_ut-esp32
+  needs:
+    - job: build_pytest_components_esp32
+      artifacts: false
+  tags: [ esp32, eth_ip101 ]
 
 pytest_components_esp32_lan8720:
   extends:
@@ -1261,7 +1288,7 @@ pytest_examples_openthread_br:
       artifacts: false
   tags: [ esp32c6, openthread_br ]
   script:
-    - retry_failed git clone $KNOWN_FAILURE_CASES_REPO known_failure_cases
+    - python tools/ci/get_known_failure_cases_file.py
     # get runner env config file
     - retry_failed git clone $TEST_ENV_CONFIG_REPO
     - python $CHECKOUT_REF_SCRIPT ci-test-runner-configs ci-test-runner-configs
@@ -1276,7 +1303,7 @@ pytest_examples_openthread_br:
     - run_cmd pytest $TEST_DIR
       -m \"${markers}\"
       --junitxml=XUNIT_RESULT.xml
-      --ignore-result-files known_failure_cases/known_failure_cases.txt
+      --ignore-result-files ${KNOWN_FAILURE_CASES_FILE_NAME}
       --parallel-count ${CI_NODE_TOTAL:-1}
       --parallel-index ${CI_NODE_INDEX:-1}
       ${PYTEST_EXTRA_FLAGS}
@@ -1295,7 +1322,7 @@ pytest_examples_openthread_bbr:
       artifacts: false
   tags: [ esp32c6, openthread_bbr ]
   script:
-    - retry_failed git clone $KNOWN_FAILURE_CASES_REPO known_failure_cases
+    - python tools/ci/get_known_failure_cases_file.py
     # get runner env config file
     - retry_failed git clone $TEST_ENV_CONFIG_REPO
     - python $CHECKOUT_REF_SCRIPT ci-test-runner-configs ci-test-runner-configs
@@ -1310,7 +1337,7 @@ pytest_examples_openthread_bbr:
     - run_cmd pytest $TEST_DIR
       -m \"${markers}\"
       --junitxml=XUNIT_RESULT.xml
-      --ignore-result-files known_failure_cases/known_failure_cases.txt
+      --ignore-result-files ${KNOWN_FAILURE_CASES_FILE_NAME}
       --parallel-count ${CI_NODE_TOTAL:-1}
       --parallel-index ${CI_NODE_INDEX:-1}
       ${PYTEST_EXTRA_FLAGS}
@@ -1327,7 +1354,7 @@ pytest_examples_openthread_sleep:
       artifacts: false
   tags: [ esp32c6, openthread_sleep ]
   script:
-    - retry_failed git clone $KNOWN_FAILURE_CASES_REPO known_failure_cases
+    - python tools/ci/get_known_failure_cases_file.py
     # get runner env config file
     - retry_failed git clone $TEST_ENV_CONFIG_REPO
     - python $CHECKOUT_REF_SCRIPT ci-test-runner-configs ci-test-runner-configs
@@ -1341,7 +1368,7 @@ pytest_examples_openthread_sleep:
     - run_cmd pytest $TEST_DIR
       -m \"${markers}\"
       --junitxml=XUNIT_RESULT.xml
-      --ignore-result-files known_failure_cases/known_failure_cases.txt
+      --ignore-result-files ${KNOWN_FAILURE_CASES_FILE_NAME}
       --parallel-count ${CI_NODE_TOTAL:-1}
       --parallel-index ${CI_NODE_INDEX:-1}
       ${PYTEST_EXTRA_FLAGS}

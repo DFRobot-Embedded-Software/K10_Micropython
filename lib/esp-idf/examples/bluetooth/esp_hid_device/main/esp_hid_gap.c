@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
@@ -22,6 +22,8 @@
 #include "host/ble_hs_adv.h"
 #include "nimble/ble.h"
 #include "host/ble_sm.h"
+#else
+#include "esp_bt_device.h"
 #endif
 
 static const char *TAG = "ESP_HID_GAP";
@@ -356,22 +358,34 @@ static void handle_ble_device_result(struct ble_scan_result_evt_param *scan_rst)
     char name[64] = {0};
 
     uint8_t uuid_len = 0;
-    uint8_t *uuid_d = esp_ble_resolve_adv_data(scan_rst->ble_adv, ESP_BLE_AD_TYPE_16SRV_CMPL, &uuid_len);
+    uint8_t *uuid_d = esp_ble_resolve_adv_data_by_type(scan_rst->ble_adv,
+                      scan_rst->adv_data_len + scan_rst->scan_rsp_len,
+                      ESP_BLE_AD_TYPE_16SRV_CMPL,
+                      &uuid_len);
     if (uuid_d != NULL && uuid_len) {
         uuid = uuid_d[0] + (uuid_d[1] << 8);
     }
 
     uint8_t appearance_len = 0;
-    uint8_t *appearance_d = esp_ble_resolve_adv_data(scan_rst->ble_adv, ESP_BLE_AD_TYPE_APPEARANCE, &appearance_len);
+    uint8_t *appearance_d = esp_ble_resolve_adv_data_by_type(scan_rst->ble_adv,
+                                                    scan_rst->adv_data_len + scan_rst->scan_rsp_len,
+                                                    ESP_BLE_AD_TYPE_APPEARANCE,
+                                                    &appearance_len);
     if (appearance_d != NULL && appearance_len) {
         appearance = appearance_d[0] + (appearance_d[1] << 8);
     }
 
     uint8_t adv_name_len = 0;
-    uint8_t *adv_name = esp_ble_resolve_adv_data(scan_rst->ble_adv, ESP_BLE_AD_TYPE_NAME_CMPL, &adv_name_len);
+    uint8_t *adv_name = esp_ble_resolve_adv_data_by_type(scan_rst->ble_adv,
+                                                 scan_rst->adv_data_len + scan_rst->scan_rsp_len,
+                                                 ESP_BLE_AD_TYPE_NAME_CMPL,
+                                                 &adv_name_len);
 
     if (adv_name == NULL) {
-        adv_name = esp_ble_resolve_adv_data(scan_rst->ble_adv, ESP_BLE_AD_TYPE_NAME_SHORT, &adv_name_len);
+        adv_name = esp_ble_resolve_adv_data_by_type(scan_rst->ble_adv,
+                                            scan_rst->adv_data_len + scan_rst->scan_rsp_len,
+                                            ESP_BLE_AD_TYPE_NAME_SHORT,
+                                            &adv_name_len);
     }
 
     if (adv_name != NULL && adv_name_len) {
@@ -725,9 +739,13 @@ esp_err_t esp_hid_ble_gap_adv_start(void)
     return esp_ble_gap_start_advertising(&hidd_adv_params);
 }
 #endif /* CONFIG_BT_BLE_ENABLED */
+
 #if CONFIG_BT_NIMBLE_ENABLED
-static struct ble_hs_adv_fields fields;
 #define GATT_SVR_SVC_HID_UUID 0x1812
+
+extern void ble_hid_task_start_up(void);
+static struct ble_hs_adv_fields fields;
+
 esp_err_t esp_hid_ble_gap_adv_init(uint16_t appearance, const char *device_name)
 {
     ble_uuid16_t *uuid16, *uuid16_1;
@@ -834,6 +852,7 @@ nimble_hid_gap_event(struct ble_gap_event *event, void *arg)
                 event->enc_change.status);
         rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         assert(rc == 0);
+        ble_hid_task_start_up();
         return 0;
 
     case BLE_GAP_EVENT_NOTIFY_TX:

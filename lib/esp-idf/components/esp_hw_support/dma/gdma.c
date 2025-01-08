@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -46,6 +46,10 @@
 #include "gdma_priv.h"
 #include "hal/cache_hal.h"
 #include "hal/cache_ll.h"
+
+#if CONFIG_PM_ENABLE && SOC_PAU_SUPPORTED
+#include "esp_private/gdma_sleep_retention.h"
+#endif
 
 static const char *TAG = "gdma";
 
@@ -131,8 +135,8 @@ static esp_err_t do_allocate_gdma_channel(const gdma_channel_search_info_t *sear
 
     for (int i = start_group_id; i < end_group_id && search_code; i++) { // loop to search group
         group = gdma_acquire_group_handle(i, search_info->hal_init);
-        group->bus_id = search_info->bus_id;
         ESP_GOTO_ON_FALSE(group, ESP_ERR_NO_MEM, err, TAG, "no mem for group(%d)", i);
+        group->bus_id = search_info->bus_id;
         for (int j = 0; j < pairs_per_group && search_code; j++) { // loop to search pair
             pair = gdma_acquire_pair_handle(group, j);
             ESP_GOTO_ON_FALSE(pair, ESP_ERR_NO_MEM, err, TAG, "no mem for pair(%d,%d)", i, j);
@@ -689,6 +693,9 @@ static void gdma_release_pair_handle(gdma_pair_t *pair)
 
     if (do_deinitialize) {
         free(pair);
+#if CONFIG_PM_ENABLE && SOC_PAU_SUPPORTED
+        gdma_sleep_retention_deinit(group->group_id, pair_id);
+#endif
         ESP_LOGD(TAG, "del pair (%d,%d)", group->group_id, pair_id);
         gdma_release_group_handle(group);
     }
@@ -726,6 +733,9 @@ static gdma_pair_t *gdma_acquire_pair_handle(gdma_group_t *group, int pair_id)
         s_platform.group_ref_counts[group->group_id]++;
         portEXIT_CRITICAL(&s_platform.spinlock);
 
+#if CONFIG_PM_ENABLE && SOC_PAU_SUPPORTED
+        gdma_sleep_retention_init(group->group_id, pair_id);
+#endif
         ESP_LOGD(TAG, "new pair (%d,%d) at %p", group->group_id, pair_id, pair);
     } else {
         free(pre_alloc_pair);

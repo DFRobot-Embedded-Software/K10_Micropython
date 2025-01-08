@@ -1,5 +1,7 @@
-import lcd_utils
+# Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 import struct
+
 
 try:
     from esp32 import NVS  # NOQA
@@ -95,20 +97,10 @@ class TouchCalData(object):
     def __init__(self, name):
         self._config = NVS(name)
 
-        blob = bytearray(24)
+        blob = bytearray(26)
+        mv = memoryview(blob)
         try:
-            self._config.get_blob("ts_config", blob)
-            (
-                alphaX, betaX, deltaX, alphaY, betaY, deltaY
-            ) = struct.unpack("<IIIIII", blob)
-
-            self._alphaX = round(lcd_utils.int_float_converter(alphaX), 7)
-            self._betaX = round(lcd_utils.int_float_converter(betaX), 7)
-            self._deltaX = round(lcd_utils.int_float_converter(deltaX), 7)
-            self._alphaY = round(lcd_utils.int_float_converter(alphaY), 7)
-            self._betaY = round(lcd_utils.int_float_converter(betaY), 7)
-            self._deltaY = round(lcd_utils.int_float_converter(deltaY), 7)
-
+            self._config.get_blob("ts_config", mv)
         except OSError:
             self._alphaX = None
             self._betaX = None
@@ -116,6 +108,13 @@ class TouchCalData(object):
             self._alphaY = None
             self._betaY = None
             self._deltaY = None
+            self._mirrorX = None
+            self._mirrorY = None
+        else:
+            (
+                self._alphaX, self._betaX, self._deltaX, self._alphaY,
+                self._betaY, self._deltaY, self._mirrorX, self._mirrorY
+            ) = struct.unpack("<ffffffBB", blob)
 
         self._is_dirty = False
 
@@ -127,26 +126,57 @@ class TouchCalData(object):
                 self._deltaX,
                 self._alphaY,
                 self._betaY,
-                self._deltaY
+                self._deltaY,
+                self._mirrorX,
+                self._mirrorY
             ):
                 self._config.erase('ts_config')
 
             else:
-                alphaX = lcd_utils.int_float_converter(self._alphaX)
-                betaX = lcd_utils.int_float_converter(self._betaX)
-                deltaX = lcd_utils.int_float_converter(self._deltaX)
-                alphaY = lcd_utils.int_float_converter(self._alphaY)
-                betaY = lcd_utils.int_float_converter(self._betaY)
-                deltaY = lcd_utils.int_float_converter(self._deltaY)
-
                 blob = struct.pack(
-                    '<IIIIII',
-                    alphaX, betaX, deltaX, alphaY, betaY, deltaY
+                    '<ffffffBB',
+                    self._alphaX, self._betaX, self._deltaX, self._alphaY,
+                    self._betaY, self._deltaY, self._mirrorX, self._mirrorY
                 )
 
-                self._config.set_blob("ts_config", blob)
+                blob = bytearray(blob)
+                mv = memoryview(blob)
+
+                self._config.set_blob("ts_config", mv)
 
             self._config.commit()
+
+    @property
+    def mirrorX(self):
+        if self._mirrorX is None:
+            return None
+
+        return bool(self._mirrorX)
+
+    @mirrorX.setter
+    def mirrorX(self, value):
+        if value is None:
+            self._mirrorX = None
+        else:
+            self._mirrorX = int(value)
+
+        self._is_dirty = True
+
+    @property
+    def mirrorY(self):
+        if self._mirrorY is None:
+            return None
+
+        return bool(self._mirrorY)
+
+    @mirrorY.setter
+    def mirrorY(self, value):
+        if value is None:
+            self._mirrorY = None
+        else:
+            self._mirrorY = int(value)
+
+        self._is_dirty = True
 
     @property
     def alphaX(self):
@@ -233,4 +263,8 @@ class TouchCalData(object):
         self.alphaY = None
         self.betaY = None
         self.deltaY = None
+        self._mirrorX = None
+        self._mirrorY = None
+
+        self._is_dirty = True
         self.save()

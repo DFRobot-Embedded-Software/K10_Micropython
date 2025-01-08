@@ -297,7 +297,6 @@ class qmi8658(object):
         z = (self.accZ * 1000.0)/self.ssvtA
         return math.sqrt(x*x + y*y + z*z)
 
-
 class Acc(qmi8658):
     def __init__(self):
         super().__init__()

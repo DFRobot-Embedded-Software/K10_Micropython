@@ -1,3 +1,5 @@
+// Copyright (c) 2024 - 2025 Kevin G. Schlosser
+
 #ifndef _ESP32_I80_BUS_H_
     #define _ESP32_I80_BUS_H_
 
@@ -22,8 +24,9 @@
 
             mp_obj_t callback;
 
-            void *buf1;
-            void *buf2;
+            mp_obj_array_t *view1;
+            mp_obj_array_t *view2;
+
             uint32_t buffer_flags;
 
             bool trans_done;
@@ -37,6 +40,8 @@
         } mp_lcd_i80_bus_obj_t;
 
         extern const mp_obj_type_t mp_lcd_i80_bus_type;
+
+        extern void mp_lcd_i80_bus_deinit_all(void);
 
     #else
         #include "../common_include/i80_bus.h"

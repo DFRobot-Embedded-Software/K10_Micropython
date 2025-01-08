@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -135,10 +135,12 @@ typedef struct {
     int lcd_cmd_bits;   /*!< Bit-width of LCD command */
     int lcd_param_bits; /*!< Bit-width of LCD parameter */
     struct {
-        unsigned int dc_low_on_data: 1;  /*!< If this flag is enabled, DC line = 0 means transfer data, DC line = 1 means transfer command; vice versa */
+        unsigned int dc_high_on_cmd: 1;  /*!< If enabled, DC level = 1 indicates command transfer */
+        unsigned int dc_low_on_data: 1;  /*!< If enabled, DC level = 0 indicates color data transfer */
+        unsigned int dc_low_on_param: 1; /*!< If enabled, DC level = 0 indicates parameter transfer */
         unsigned int octal_mode: 1;      /*!< transmit with octal mode (8 data lines), this mode is used to simulate Intel 8080 timing */
         unsigned int quad_mode: 1;       /*!< transmit with quad mode (4 data lines), this mode is useful when transmitting LCD parameters (Only use one line for command) */
-        unsigned int sio_mode: 1; /*!< Read and write through a single data line (MOSI) */
+        unsigned int sio_mode: 1;        /*!< Read and write through a single data line (MOSI) */
         unsigned int lsb_first: 1;       /*!< transmit LSB bit first */
         unsigned int cs_high_active: 1;  /*!< CS line is high active */
     } flags; /*!< Extra flags to fine-tune the SPI device */
@@ -207,21 +209,6 @@ esp_err_t esp_lcd_new_panel_io_i2c_v1(uint32_t bus, const esp_lcd_panel_io_i2c_c
  *          - ESP_OK                on success
  */
 esp_err_t esp_lcd_new_panel_io_i2c_v2(i2c_master_bus_handle_t bus, const esp_lcd_panel_io_i2c_config_t *io_config, esp_lcd_panel_io_handle_t *ret_io);
-
-/**
- * @brief Create LCD panel IO handle
- *
- * @param[in] bus I2C bus handle
- * @param[in] io_config IO configuration, for I2C interface
- * @param[out] ret_io Returned IO handle
- * @return
- *          - ESP_ERR_INVALID_ARG   if parameter is invalid
- *          - ESP_ERR_NO_MEM        if out of memory
- *          - ESP_OK                on success
- */
-#define esp_lcd_new_panel_io_i2c(bus, io_config, ret_io) _Generic((bus),  \
-            i2c_master_bus_handle_t : esp_lcd_new_panel_io_i2c_v2, \
-            default : esp_lcd_new_panel_io_i2c_v1) (bus, io_config, ret_io) \
 
 #if SOC_LCD_I80_SUPPORTED
 /**
@@ -306,4 +293,53 @@ esp_err_t esp_lcd_new_panel_io_i80(esp_lcd_i80_bus_handle_t bus, const esp_lcd_p
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef __cplusplus
+/**
+ * @brief Create LCD panel IO handle
+ *
+ * @param[in] bus I2C bus ID, indicates which I2C port to use
+ * @param[in] io_config IO configuration, for I2C interface
+ * @param[out] ret_io Returned IO handle
+ * @return
+ *          - ESP_ERR_INVALID_ARG   if parameter is invalid
+ *          - ESP_ERR_NO_MEM        if out of memory
+ *          - ESP_OK                on success
+ */
+static inline void esp_lcd_new_panel_io_i2c(uint32_t bus, const esp_lcd_panel_io_i2c_config_t *io_config, esp_lcd_panel_io_handle_t *ret_io)
+{
+    esp_lcd_new_panel_io_i2c_v1(bus, io_config, ret_io);
+}
+
+/**
+ * @brief Create LCD panel IO handle
+ *
+ * @param[in] bus I2C bus handle, returned from `i2c_new_master_bus`
+ * @param[in] io_config IO configuration, for I2C interface
+ * @param[out] ret_io Returned IO handle
+ * @return
+ *          - ESP_ERR_INVALID_ARG   if parameter is invalid
+ *          - ESP_ERR_NO_MEM        if out of memory
+ *          - ESP_OK                on success
+ */
+static inline void esp_lcd_new_panel_io_i2c(i2c_master_bus_handle_t bus, const esp_lcd_panel_io_i2c_config_t *io_config, esp_lcd_panel_io_handle_t *ret_io)
+{
+    esp_lcd_new_panel_io_i2c_v2(bus, io_config, ret_io);
+}
+#else
+/**
+ * @brief Create LCD panel IO handle
+ *
+ * @param[in] bus I2C bus handle
+ * @param[in] io_config IO configuration, for I2C interface
+ * @param[out] ret_io Returned IO handle
+ * @return
+ *          - ESP_ERR_INVALID_ARG   if parameter is invalid
+ *          - ESP_ERR_NO_MEM        if out of memory
+ *          - ESP_OK                on success
+ */
+#define esp_lcd_new_panel_io_i2c(bus, io_config, ret_io) _Generic((bus),  \
+            i2c_master_bus_handle_t : esp_lcd_new_panel_io_i2c_v2, \
+            default : esp_lcd_new_panel_io_i2c_v1) (bus, io_config, ret_io)
 #endif

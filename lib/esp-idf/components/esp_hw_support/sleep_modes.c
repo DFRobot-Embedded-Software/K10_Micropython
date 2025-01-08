@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -25,6 +25,15 @@
 #include "soc/soc_caps.h"
 #include "driver/rtc_io.h"
 #include "hal/rtc_io_hal.h"
+
+#if SOC_SLEEP_SYSTIMER_STALL_WORKAROUND
+#include "hal/systimer_ll.h"
+#endif
+
+#if SOC_SLEEP_TGWDT_STOP_WORKAROUND
+#include "hal/mwdt_ll.h"
+#include "hal/timer_ll.h"
+#endif
 
 #if SOC_PM_SUPPORT_PMU_MODEM_STATE
 #include "esp_private/pm_impl.h"
@@ -170,7 +179,8 @@
 
 #define MAX_DSLP_HOOKS      3
 
-static esp_deep_sleep_cb_t s_dslp_cb[MAX_DSLP_HOOKS]={0};
+static esp_deep_sleep_cb_t s_dslp_cb[MAX_DSLP_HOOKS] = {0};
+static esp_deep_sleep_cb_t s_dslp_phy_cb[MAX_DSLP_HOOKS] = {0};
 
 /**
  * Internal structure which holds all requested sleep parameters
@@ -387,12 +397,12 @@ esp_err_t esp_deep_sleep_try(uint64_t time_in_us)
     return esp_deep_sleep_try_to_start();
 }
 
-esp_err_t esp_deep_sleep_register_hook(esp_deep_sleep_cb_t new_dslp_cb)
+static esp_err_t s_sleep_hook_register(esp_deep_sleep_cb_t new_cb, esp_deep_sleep_cb_t s_cb_array[MAX_DSLP_HOOKS])
 {
     portENTER_CRITICAL(&spinlock_rtc_deep_sleep);
-    for(int n = 0; n < MAX_DSLP_HOOKS; n++){
-        if (s_dslp_cb[n]==NULL || s_dslp_cb[n]==new_dslp_cb) {
-            s_dslp_cb[n]=new_dslp_cb;
+    for (int n = 0; n < MAX_DSLP_HOOKS; n++) {
+        if (s_cb_array[n]==NULL || s_cb_array[n]==new_cb) {
+            s_cb_array[n]=new_cb;
             portEXIT_CRITICAL(&spinlock_rtc_deep_sleep);
             return ESP_OK;
         }
@@ -402,15 +412,44 @@ esp_err_t esp_deep_sleep_register_hook(esp_deep_sleep_cb_t new_dslp_cb)
     return ESP_ERR_NO_MEM;
 }
 
-void esp_deep_sleep_deregister_hook(esp_deep_sleep_cb_t old_dslp_cb)
+static void s_sleep_hook_deregister(esp_deep_sleep_cb_t old_cb, esp_deep_sleep_cb_t s_cb_array[MAX_DSLP_HOOKS])
 {
     portENTER_CRITICAL(&spinlock_rtc_deep_sleep);
-    for(int n = 0; n < MAX_DSLP_HOOKS; n++){
-        if(s_dslp_cb[n] == old_dslp_cb) {
-            s_dslp_cb[n] = NULL;
+    for (int n = 0; n < MAX_DSLP_HOOKS; n++) {
+        if(s_cb_array[n] == old_cb) {
+            s_cb_array[n] = NULL;
         }
     }
     portEXIT_CRITICAL(&spinlock_rtc_deep_sleep);
+}
+
+esp_err_t esp_deep_sleep_register_hook(esp_deep_sleep_cb_t new_dslp_cb)
+{
+    return s_sleep_hook_register(new_dslp_cb, s_dslp_cb);
+}
+
+void esp_deep_sleep_deregister_hook(esp_deep_sleep_cb_t old_dslp_cb)
+{
+    s_sleep_hook_deregister(old_dslp_cb, s_dslp_cb);
+}
+
+esp_err_t esp_deep_sleep_register_phy_hook(esp_deep_sleep_cb_t new_dslp_cb)
+{
+    return s_sleep_hook_register(new_dslp_cb, s_dslp_phy_cb);
+}
+
+void esp_deep_sleep_deregister_phy_hook(esp_deep_sleep_cb_t old_dslp_cb)
+{
+    s_sleep_hook_deregister(old_dslp_cb, s_dslp_phy_cb);
+}
+
+static void s_do_deep_sleep_phy_callback(void)
+{
+    for (int n = 0; n < MAX_DSLP_HOOKS; n++) {
+        if (s_dslp_phy_cb[n] != NULL) {
+            s_dslp_phy_cb[n]();
+        }
+    }
 }
 
 static int s_cache_suspend_cnt = 0;
@@ -429,6 +468,52 @@ static void IRAM_ATTR resume_cache(void) {
     assert(s_cache_suspend_cnt >= 0 && DRAM_STR("cache resume doesn't match suspend ops"));
     if (s_cache_suspend_cnt == 0) {
         cache_hal_resume(CACHE_LL_LEVEL_EXT_MEM, CACHE_TYPE_ALL);
+    }
+}
+
+#if SOC_SLEEP_TGWDT_STOP_WORKAROUND
+static uint32_t s_stopped_tgwdt_bmap = 0;
+#endif
+
+// Must be called from critical sections.
+static void IRAM_ATTR suspend_timers(uint32_t pd_flags) {
+    if (!(pd_flags & RTC_SLEEP_PD_XTAL)) {
+#if SOC_SLEEP_TGWDT_STOP_WORKAROUND
+        /* If timegroup implemented task watchdog or interrupt watchdog is running, we have to stop it. */
+        for (uint32_t tg_num = 0; tg_num < SOC_TIMER_GROUPS; ++tg_num) {
+            if (mwdt_ll_check_if_enabled(TIMER_LL_GET_HW(tg_num))) {
+                mwdt_ll_write_protect_disable(TIMER_LL_GET_HW(tg_num));
+                mwdt_ll_disable(TIMER_LL_GET_HW(tg_num));
+                mwdt_ll_write_protect_enable(TIMER_LL_GET_HW(tg_num));
+                s_stopped_tgwdt_bmap |= BIT(tg_num);
+            }
+        }
+#endif
+#if SOC_SLEEP_SYSTIMER_STALL_WORKAROUND
+        for (uint32_t counter_id = 0; counter_id < SOC_SYSTIMER_COUNTER_NUM; ++counter_id) {
+            systimer_ll_enable_counter(&SYSTIMER, counter_id, false);
+        }
+#endif
+    }
+}
+
+// Must be called from critical sections.
+static void IRAM_ATTR resume_timers(uint32_t pd_flags) {
+    if (!(pd_flags & RTC_SLEEP_PD_XTAL)) {
+#if SOC_SLEEP_SYSTIMER_STALL_WORKAROUND
+        for (uint32_t counter_id = 0; counter_id < SOC_SYSTIMER_COUNTER_NUM; ++counter_id) {
+            systimer_ll_enable_counter(&SYSTIMER, counter_id, true);
+        }
+#endif
+#if SOC_SLEEP_TGWDT_STOP_WORKAROUND
+        for (uint32_t tg_num = 0; tg_num < SOC_TIMER_GROUPS; ++tg_num) {
+            if (s_stopped_tgwdt_bmap & BIT(tg_num)) {
+                mwdt_ll_write_protect_disable(TIMER_LL_GET_HW(tg_num));
+                mwdt_ll_enable(TIMER_LL_GET_HW(tg_num));
+                mwdt_ll_write_protect_enable(TIMER_LL_GET_HW(tg_num));
+            }
+        }
+#endif
     }
 }
 
@@ -507,7 +592,12 @@ FORCE_INLINE_ATTR bool light_sleep_uart_prepare(uint32_t pd_flags, int64_t sleep
 #if !SOC_PM_SUPPORT_TOP_PD || !CONFIG_ESP_CONSOLE_UART
     suspend_uarts();
 #else
-    if (pd_flags & PMU_SLEEP_PD_TOP) {
+#ifdef CONFIG_ESP_SLEEP_CACHE_SAFE_ASSERTION
+#define FORCE_FLUSH_CONSOLE_UART 1
+#else
+#define FORCE_FLUSH_CONSOLE_UART 0
+#endif
+    if (FORCE_FLUSH_CONSOLE_UART || (pd_flags & PMU_SLEEP_PD_TOP)) {
         if ((s_config.wakeup_triggers & RTC_TIMER_TRIG_EN) &&
             // +1 is for cover the last character flush time
             (sleep_duration < (int64_t)((UART_LL_FIFO_DEF_LEN - uart_ll_get_txfifo_len(CONSOLE_UART_DEV) + 1) * UART_FLUSH_US_PER_CHAR) + SLEEP_UART_FLUSH_DONE_TO_SLEEP_US)) {
@@ -654,6 +744,12 @@ static esp_err_t IRAM_ATTR esp_sleep_start(uint32_t pd_flags, esp_sleep_mode_t m
         should_skip_sleep = light_sleep_uart_prepare(pd_flags, sleep_duration);
     }
 
+    // Do deep-sleep PHY related callback, which need to be executed when the PLL clock is exists.
+    // For light-sleep, PHY state is managed by the upper layer of the wifi/bt protocol stack.
+    if (deep_sleep) {
+        s_do_deep_sleep_phy_callback();
+    }
+
     // Will switch to XTAL turn down MSPI speed
     mspi_timing_change_speed_mode_cache_safe(true);
 
@@ -780,19 +876,14 @@ static esp_err_t IRAM_ATTR esp_sleep_start(uint32_t pd_flags, esp_sleep_mode_t m
         }
     }
 
-#if CONFIG_ESP_SLEEP_SYSTIMER_STALL_WORKAROUND
-    if (!(pd_flags & RTC_SLEEP_PD_XTAL)) {
-        rtc_sleep_systimer_enable(false);
-    }
-#endif
 
     if (should_skip_sleep) {
         result = ESP_ERR_SLEEP_REJECT;
     } else {
 #if CONFIG_ESP_SLEEP_DEBUG
-    if (s_sleep_ctx != NULL) {
-        s_sleep_ctx->wakeup_triggers = s_config.wakeup_triggers;
-    }
+        if (s_sleep_ctx != NULL) {
+            s_sleep_ctx->wakeup_triggers = s_config.wakeup_triggers;
+        }
 #endif
         if (deep_sleep) {
 #if !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
@@ -820,6 +911,7 @@ static esp_err_t IRAM_ATTR esp_sleep_start(uint32_t pd_flags, esp_sleep_mode_t m
 #endif
 #endif // SOC_PM_SUPPORT_DEEPSLEEP_CHECK_STUB_ONLY
         } else {
+            suspend_timers(pd_flags);
             /* Cache Suspend 1: will wait cache idle in cache suspend */
             suspend_cache();
             /* On esp32c6, only the lp_aon pad hold function can only hold the GPIO state in the active mode.
@@ -858,13 +950,8 @@ static esp_err_t IRAM_ATTR esp_sleep_start(uint32_t pd_flags, esp_sleep_mode_t m
 #endif
             /* Cache Resume 1: Resume cache for continue running*/
             resume_cache();
+            resume_timers(pd_flags);
         }
-
-#if CONFIG_ESP_SLEEP_SYSTIMER_STALL_WORKAROUND
-            if (!(pd_flags & RTC_SLEEP_PD_XTAL)) {
-                rtc_sleep_systimer_enable(true);
-            }
-#endif
     }
 #if CONFIG_ESP_SLEEP_CACHE_SAFE_ASSERTION
     if (pd_flags & RTC_SLEEP_PD_VDDSDIO) {
@@ -1500,7 +1587,19 @@ static void ext0_wakeup_prepare(void)
 #if SOC_PM_SUPPORT_EXT1_WAKEUP
 esp_err_t esp_sleep_enable_ext1_wakeup(uint64_t io_mask, esp_sleep_ext1_wakeup_mode_t level_mode)
 {
-    if (level_mode > ESP_EXT1_WAKEUP_ANY_HIGH) {
+    if (io_mask == 0 && level_mode > ESP_EXT1_WAKEUP_ANY_HIGH) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    // Reset all EXT1 configs
+    esp_sleep_disable_ext1_wakeup_io(0);
+
+    return esp_sleep_enable_ext1_wakeup_io(io_mask, level_mode);
+}
+
+
+esp_err_t esp_sleep_enable_ext1_wakeup_io(uint64_t io_mask, esp_sleep_ext1_wakeup_mode_t level_mode)
+{
+    if (io_mask == 0 && level_mode > ESP_EXT1_WAKEUP_ANY_HIGH) {
         return ESP_ERR_INVALID_ARG;
     }
     // Translate bit map of GPIO numbers into the bit map of RTC IO numbers
@@ -1515,13 +1614,58 @@ esp_err_t esp_sleep_enable_ext1_wakeup(uint64_t io_mask, esp_sleep_ext1_wakeup_m
         }
         rtc_gpio_mask |= BIT(rtc_io_number_get(gpio));
     }
-    s_config.ext1_rtc_gpio_mask = rtc_gpio_mask;
+
+#if !SOC_PM_SUPPORT_EXT1_WAKEUP_MODE_PER_PIN
+    uint32_t ext1_rtc_gpio_mask = 0;
+    uint32_t ext1_trigger_mode = 0;
+
+    ext1_rtc_gpio_mask = s_config.ext1_rtc_gpio_mask | rtc_gpio_mask;
     if (level_mode) {
-        s_config.ext1_trigger_mode = rtc_gpio_mask;
+        ext1_trigger_mode = s_config.ext1_trigger_mode | rtc_gpio_mask;
     } else {
-        s_config.ext1_trigger_mode = 0;
+        ext1_trigger_mode = s_config.ext1_trigger_mode & (~rtc_gpio_mask);
+    }
+    if (((ext1_rtc_gpio_mask & ext1_trigger_mode) != ext1_rtc_gpio_mask) &&
+    ((ext1_rtc_gpio_mask & ext1_trigger_mode) != 0)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+
+    s_config.ext1_rtc_gpio_mask |= rtc_gpio_mask;
+    if (level_mode) {
+        s_config.ext1_trigger_mode |= rtc_gpio_mask;
+    } else {
+        s_config.ext1_trigger_mode &= (~rtc_gpio_mask);
     }
     s_config.wakeup_triggers |= RTC_EXT1_TRIG_EN;
+    return ESP_OK;
+}
+
+esp_err_t esp_sleep_disable_ext1_wakeup_io(uint64_t io_mask)
+{
+    if (io_mask == 0) {
+        s_config.ext1_rtc_gpio_mask = 0;
+        s_config.ext1_trigger_mode = 0;
+    } else {
+        // Translate bit map of GPIO numbers into the bit map of RTC IO numbers
+        uint32_t rtc_gpio_mask = 0;
+        for (int gpio = 0; io_mask; ++gpio, io_mask >>= 1) {
+            if ((io_mask & 1) == 0) {
+                continue;
+            }
+            if (!esp_sleep_is_valid_wakeup_gpio(gpio)) {
+                ESP_LOGE(TAG, "Not an RTC IO Considering io_mask: GPIO%d", gpio);
+                return ESP_ERR_INVALID_ARG;
+            }
+            rtc_gpio_mask |= BIT(rtc_io_number_get(gpio));
+        }
+        s_config.ext1_rtc_gpio_mask &= (~rtc_gpio_mask);
+        s_config.ext1_trigger_mode &= (~rtc_gpio_mask);
+    }
+
+    if (s_config.ext1_rtc_gpio_mask == 0) {
+        s_config.wakeup_triggers &= (~RTC_EXT1_TRIG_EN);
+    }
     return ESP_OK;
 }
 
@@ -1986,7 +2130,11 @@ static uint32_t get_power_down_flags(void)
 #endif
 
 #if SOC_PM_SUPPORT_MODEM_PD
-    if ((s_config.domain[ESP_PD_DOMAIN_MODEM].pd_option != ESP_PD_OPTION_ON) && modem_domain_pd_allowed()) {
+    if ((s_config.domain[ESP_PD_DOMAIN_MODEM].pd_option != ESP_PD_OPTION_ON) && modem_domain_pd_allowed()
+#if SOC_PM_MODEM_RETENTION_BY_REGDMA
+        && clock_domain_pd_allowed()
+#endif
+        ) {
         pd_flags |= RTC_SLEEP_PD_MODEM;
     }
 #endif

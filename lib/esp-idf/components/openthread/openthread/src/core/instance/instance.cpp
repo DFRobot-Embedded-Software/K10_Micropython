@@ -87,6 +87,11 @@ Instance::Instance(void)
     , mSettings(*this)
     , mSettingsDriver(*this)
     , mMessagePool(*this)
+#if OPENTHREAD_CONFIG_PLATFORM_DNSSD_ENABLE || OPENTHREAD_CONFIG_MULTICAST_DNS_ENABLE
+    // DNS-SD (mDNS) platform is initialized early to
+    // allow other modules to use it.
+    , mDnssd(*this)
+#endif
     , mIp6(*this)
     , mThreadNetif(*this)
     , mTmfAgent(*this)
@@ -117,8 +122,14 @@ Instance::Instance(void)
 #if OPENTHREAD_CONFIG_DNS_DSO_ENABLE
     , mDnsDso(*this)
 #endif
+#if OPENTHREAD_CONFIG_MULTICAST_DNS_ENABLE
+    , mMdnsCore(*this)
+#endif
 #if OPENTHREAD_CONFIG_SNTP_CLIENT_ENABLE
     , mSntpClient(*this)
+#endif
+#if OPENTHREAD_FTD && OPENTHREAD_CONFIG_BACKBONE_ROUTER_ENABLE
+    , mBackboneRouterLocal(*this)
 #endif
     , mActiveDataset(*this)
     , mPendingDataset(*this)
@@ -156,7 +167,7 @@ Instance::Instance(void)
 #if OPENTHREAD_CONFIG_COMMISSIONER_ENABLE && OPENTHREAD_FTD
     , mCommissioner(*this)
 #endif
-#if OPENTHREAD_CONFIG_DTLS_ENABLE
+#if OPENTHREAD_CONFIG_SECURE_TRANSPORT_ENABLE
     , mTmfSecureAgent(*this)
 #endif
 #if OPENTHREAD_CONFIG_JOINER_ENABLE
@@ -173,7 +184,6 @@ Instance::Instance(void)
     , mBackboneRouterLeader(*this)
 #endif
 #if OPENTHREAD_FTD && OPENTHREAD_CONFIG_BACKBONE_ROUTER_ENABLE
-    , mBackboneRouterLocal(*this)
     , mBackboneRouterManager(*this)
 #endif
 #if OPENTHREAD_CONFIG_MLR_ENABLE || (OPENTHREAD_FTD && OPENTHREAD_CONFIG_TMF_PROXY_MLR_ENABLE)
@@ -185,6 +195,9 @@ Instance::Instance(void)
 #endif
 #if OPENTHREAD_CONFIG_SRP_SERVER_ENABLE
     , mSrpServer(*this)
+#if OPENTHREAD_CONFIG_SRP_SERVER_ADVERTISING_PROXY_ENABLE
+    , mSrpAdvertisingProxy(*this)
+#endif
 #endif
 #if OPENTHREAD_FTD
     , mChildSupervisor(*this)
@@ -211,13 +224,17 @@ Instance::Instance(void)
 #if OPENTHREAD_CONFIG_COAP_SECURE_API_ENABLE
     , mApplicationCoapSecure(*this, /* aLayerTwoSecurity */ true)
 #endif
+#if OPENTHREAD_CONFIG_BLE_TCAT_ENABLE
+    , mApplicationBleSecure(*this)
+#endif
 #if OPENTHREAD_CONFIG_PING_SENDER_ENABLE
     , mPingSender(*this)
 #endif
 #if OPENTHREAD_CONFIG_CHANNEL_MONITOR_ENABLE
     , mChannelMonitor(*this)
 #endif
-#if OPENTHREAD_CONFIG_CHANNEL_MANAGER_ENABLE && OPENTHREAD_FTD
+#if OPENTHREAD_CONFIG_CHANNEL_MANAGER_ENABLE && \
+    (OPENTHREAD_FTD || OPENTHREAD_CONFIG_CHANNEL_MANAGER_CSL_CHANNEL_SELECT_ENABLE)
     , mChannelManager(*this)
 #endif
 #if OPENTHREAD_CONFIG_MESH_DIAG_ENABLE && OPENTHREAD_FTD
@@ -314,6 +331,19 @@ Instance *Instance::InitMultiple(uint8_t aIdx)
 
 exit:
     return instance;
+}
+
+Instance &Instance::Get(uint8_t aIdx)
+{
+    void *instance = gMultiInstanceRaw + aIdx * INSTANCE_SIZE_ALIGNED;
+    return *static_cast<Instance *>(instance);
+}
+
+uint8_t Instance::GetIdx(Instance *aInstance)
+{
+    return static_cast<uint8_t>(
+        (reinterpret_cast<uint8_t *>(aInstance) - reinterpret_cast<uint8_t *>(gMultiInstanceRaw)) /
+        INSTANCE_SIZE_ALIGNED);
 }
 
 #endif // #if OPENTHREAD_CONFIG_MULTIPLE_STATIC_INSTANCE_ENABLE
@@ -456,7 +486,7 @@ void Instance::GetBufferInfo(BufferInfo &aInfo)
     Get<Tmf::Agent>().GetRequestMessages().GetInfo(aInfo.mCoapQueue);
     Get<Tmf::Agent>().GetCachedResponses().GetInfo(aInfo.mCoapQueue);
 
-#if OPENTHREAD_CONFIG_DTLS_ENABLE
+#if OPENTHREAD_CONFIG_SECURE_TRANSPORT_ENABLE
     Get<Tmf::SecureAgent>().GetRequestMessages().GetInfo(aInfo.mCoapSecureQueue);
     Get<Tmf::SecureAgent>().GetCachedResponses().GetInfo(aInfo.mCoapSecureQueue);
 #endif

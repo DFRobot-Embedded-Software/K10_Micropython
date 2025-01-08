@@ -171,6 +171,7 @@ enum KEY_ACTION{
 	CTRL_U = 21,        /* Ctrl+u */
 	CTRL_W = 23,        /* Ctrl+w */
 	ESC = 27,           /* Escape */
+	UNIT_SEP = 31,      /* ctrl-_ */
 	BACKSPACE =  127    /* Backspace */
 };
 
@@ -804,6 +805,23 @@ uint32_t getMillis(void) {
     return tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
+static inline size_t prompt_len_ignore_escape_seq(const char *prompt) {
+    size_t plen = 0;
+    bool in_escape_sequence = false;
+
+    for (; *prompt != '\0'; ++prompt) {
+        if (*prompt == '\033') {
+            in_escape_sequence = true;
+        } else if (in_escape_sequence && *prompt == 'm') {
+            in_escape_sequence = false;
+        } else if (!in_escape_sequence) {
+            ++plen;
+        }
+    }
+
+    return plen;
+}
+
 /* This function is the core of the line editing capability of linenoise.
  * It expects 'fd' to be already in "raw mode" so that every key pressed
  * will be returned ASAP to read().
@@ -839,15 +857,16 @@ static int linenoiseEdit(char *buf, size_t buflen, const char *prompt)
      * initially is just an empty string. */
     linenoiseHistoryAdd("");
 
-    int pos1 = getCursorPosition();
     if (write(out_fd, prompt,l.plen) == -1) {
         return -1;
     }
     flushWrite();
-    int pos2 = getCursorPosition();
-    if (pos1 >= 0 && pos2 >= 0) {
-        l.plen = pos2 - pos1;
-    }
+
+    /* If the prompt has been registered with ANSI escape sequences
+     * for terminal colors then we remove them from the prompt length
+     * calculation. */
+    l.plen = prompt_len_ignore_escape_seq(prompt);
+
     while(1) {
         char c;
         int nread;
@@ -1057,9 +1076,9 @@ int linenoiseProbe(void) {
         if (cb < 0) {
             continue;
         }
-        if (read_bytes == 0 && c != '\x1b') {
-            /* invalid response */
-            break;
+        if (read_bytes == 0 && c != ESC) {
+            /* invalid response, try again until the timeout triggers */
+            continue;
         }
         read_bytes += cb;
     }
@@ -1098,15 +1117,23 @@ static int linenoiseDumb(char* buf, size_t buflen, const char* prompt) {
         int c = fgetc(stdin);
         if (c == '\n') {
             break;
-        } else if (c >= 0x1c && c <= 0x1f){
-            continue; /* consume arrow keys */
-        } else if (c == BACKSPACE || c == 0x8) {
+        } else if (c == BACKSPACE || c == CTRL_H) {
             if (count > 0) {
                 buf[count - 1] = 0;
-                count --;
+                count--;
+
+                /* Only erase symbol echoed from stdin. */
+                fputs("\x08 ", stdout); /* Windows CMD: erase symbol under cursor */
+                flushWrite();
+            } else {
+                /* Consume backspace if the command line is empty to avoid erasing the prompt */
+                continue;
             }
-            fputs("\x08 ", stdout); /* Windows CMD: erase symbol under cursor */
-            flushWrite();
+
+        } else if (c <= UNIT_SEP) {
+            /* Consume all character that are non printable (the backspace
+             * case is handled above) */
+            continue;
         } else {
             buf[count] = c;
             ++count;

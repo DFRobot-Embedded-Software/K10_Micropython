@@ -2198,6 +2198,7 @@ done:
 static void
 lwip_netconn_do_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
 {
+  u8_t i;
   struct dns_api_msg *msg = (struct dns_api_msg *)arg;
 
   /* we trust the internal implementation to be correct :-) */
@@ -2209,7 +2210,10 @@ lwip_netconn_do_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
   } else {
     /* address was resolved */
     API_EXPR_DEREF(msg->err) = ERR_OK;
-    API_EXPR_DEREF(msg->addr) = *ipaddr;
+
+    for (i=0; i<DNS_MAX_HOST_IP; i++) {
+      API_EXPR_DEREF(msg->addr+i) = *(ipaddr+i);
+    }
   }
   /* wake up the application task waiting in netconn_gethostbyname */
   sys_sem_signal(API_EXPR_REF_SEM(msg->sem));

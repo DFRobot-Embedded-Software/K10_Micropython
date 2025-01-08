@@ -59,6 +59,7 @@
     { MP_ROM_QSTR(MP_QSTR_Pin), MP_ROM_PTR(&machine_pin_type) }, \
     MICROPY_PY_MACHINE_TOUCH_PAD_ENTRY \
     { MP_ROM_QSTR(MP_QSTR_RTC), MP_ROM_PTR(&machine_rtc_type) }, \
+    { MP_ROM_QSTR(MP_QSTR_Servo), MP_ROM_PTR(&machine_servo_type) }, \
     \
     /* wake abilities */ \
     { MP_ROM_QSTR(MP_QSTR_SLEEP), MP_ROM_INT(MACHINE_WAKE_SLEEP) }, \

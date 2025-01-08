@@ -1,7 +1,6 @@
 from k10_base import i2c
-import time
-import math
-import struct
+import time,math,struct,gc
+gc.collect()
 
 '''
 int.from_bytes(bytearray([0x01,0x02]),'big') = 0x0102

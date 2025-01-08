@@ -1,5 +1,5 @@
 import gc
-from machine import Pin,PWM,ADC,I2C,Timer,I2S,SPI,SDCard
+from machine import Pin,PWM,ADC,Timer,I2C,I2S,SPI,SDCard
 from micropython import schedule
 import lvgl as lv
 import time,vfs,camera,lcd_bus,ili9341,network,ubinascii
@@ -14,7 +14,7 @@ K10分为原生esp32S3的引脚和IO扩展芯片的引脚
 '''
 # K10的引脚映射   P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17, P18, P19, P20    
 pins_remap_k10 = (1, 2,  57, 66, 65, 64, 63, -1, 60, 61, 62,  52,  53,  54,  55,  56,  -1,  -1,  -1,  48,  47)
-k10_i2c = I2C(0, scl=Pin(48), sda=Pin(47), freq=100000)
+k10_i2c = I2C(0, scl=48, sda=47, freq=100000)
 '''
 定时读取IO扩展的所有IO口，这样可以避免频繁操作不同IO口时，频繁的去读取
 也是为了同步解决所有IO都设置为了输入时，因为是浮空状态会频繁的产生中断去读，就会导致I2C总线上拥挤
@@ -277,14 +277,20 @@ class Button(object):
         #按下事件
         if _current_value == self._press_level and self._last_value != self._press_level:
             if self.event_pressed is not None:
-                schedule(self.event_pressed, None)
+                try:
+                    schedule(self.event_pressed, None)
+                except:
+                    pass
             self._was_pressed = True
             if(self._pressed_count < 100):
                 self._pressed_count += 1
         #释放事件
         elif _current_value == self._release_level and self._last_value != self._release_level:
             if self.event_released is not None:
-                schedule(self.event_released, None)
+                try:
+                    schedule(self.event_released, None)
+                except:
+                    pass
         self._last_value = _current_value
 
     def is_pressed(self):
@@ -579,7 +585,10 @@ class Light(object):
     def __init__(self):
         self._i2c = k10_i2c
         self._addr = 0x29
-        self._begin()
+        try:
+            self._begin()
+        except:
+            print("Light not detected")
     def _begin(self):
         self._writeReg(self.LTR303ALS_CTRL, self.LTR303ALS_GAIN_MODE)
         self._writeReg(self.LTR303ALS_MEAS_RATE, self.LTR303ALS_INTEG_RATE)
@@ -722,6 +731,11 @@ class Mic(object):
     def reinit(self,bits=16,sample_rate=16000,channels=1):
         self.i2s = I2S(0,sck = 0, ws = 38, sd = 39,mode=I2S.RX, bits=bits, 
                        format=I2S.MONO if channels == 1 else I2S.STEREO, rate=sample_rate, ibuf=20000)
+    def deinit(self):
+        print("mic deinit\n")
+        if self.i2s:
+            self.i2s.deinit()
+            self.i2s = None
 
 
     def write_wav_header(self, file, num_samples):
@@ -783,10 +797,30 @@ K10扬声器类
 '''
 class Speaker(object):
     def __init__(self):
+        print("init speaker\n")
         self.i2s = I2S(1,sck = 0,ws=38, sd= 45, mode=I2S.TX, bits=32, format=I2S.MONO, rate=16000, ibuf=20000)
         self.i2s.deinit()
         self._i2c = k10_i2c
-
+        print("init done\n")
+    def __del__(self):
+        print("Speaker deleted\n")
+        if self.i2s:
+            self.i2s.deinit()
+            self.i2s = None
+        try:
+            self._i2c.writeto_mem(0x20,0x2A,bytearray([0x00]))
+        except:
+            pass
+    def deinit(self):
+        print("Speaker deinit\n")
+        if self.i2s:
+            self.i2s.deinit()
+            self.i2s = None
+        try:
+            self._i2c.writeto_mem(0x20,0x2A,bytearray([0x00]))
+        except:
+            pass
+        
     def reinit(self,bits=16,sample_rate=16000,channels=1):
         self.i2s = I2S(1,sck = 0, ws = 38, sd = 45,mode=I2S.TX, bits=bits, 
                        format=I2S.MONO if channels == 1 else I2S.STEREO, rate=sample_rate, ibuf=20000)
@@ -854,12 +888,18 @@ K10的SD卡类
 '''
 class TF_card(object):
     def __init__(self):
-        self.spi_bus = SPI.Bus(host = 1, mosi = 42, miso = 41, sck = 44)
-        self.sd = SDCard(spi_bus = self.spi_bus, cs = 40, freq = 1000000)
         try:
+            self.spi_bus = SPI.Bus(host = 1, mosi = 42, miso = 41, sck = 44)
+            self.sd = SDCard(spi_bus = self.spi_bus, cs = 40, freq = 1000000)
             vfs.mount(self.sd, "/sd")
         except:
             print("SD card not detected")
+    def __del__(self):
+        if self.spi_bus:
+            self.spi_bus = None
+    def deinit(self):
+        if self.spi_bus:
+            self.spi_bus = None
 '''
 K10的摄像头类
 '''
@@ -879,6 +919,8 @@ class Camera(object):
         self.cam.init(0)
     def capture(self):
         return self.cam.capture()
+    def save(self):
+        pass
 
 '''
 K10的屏幕类
@@ -945,6 +987,8 @@ class Screen(object):
                 data = None
             )
         )
+        #显示摄像头画面的timer
+        self.camera_timer = None
 
     #显示指定颜色背景
     def show_bg(self,color=0xFFFFFF):
@@ -1100,8 +1144,14 @@ class Screen(object):
         self.img_dsc.data = buf
         self.img.set_src(self.img_dsc)
         lv.refr_now(None)
+
     def show_camera(self,camera):
-        lv.timer_create(lambda t: self.show_camera_img(camera.capture()), 50, None)
+        self.camera_timer = lv.timer_create(lambda t: self.show_camera_img(camera.capture()), 50, None)
+
+    def close_show_camera(self):
+        if self.camera_timer:
+            lv.timer_del(self.camera_timer)
+            self.camera_timer = None
 
 
 class Wifibase(object):
@@ -1324,4 +1374,4 @@ class _k10_timer(object):
                 self._temp.measure()
             self._num = 0
 temp_humi = aht20()
-_k10_measure_timer = _k10_timer(temp = temp_humi)
+_k10_measure_timer =_k10_timer(temp = temp_humi)

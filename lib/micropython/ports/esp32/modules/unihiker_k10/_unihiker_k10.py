@@ -3,11 +3,11 @@ from k10_base import Light,Mic,Speaker,TF_card,Screen,Camera,WiFi,MqttClient,Tim
 from k10_base import k10_i2c, pins_remap_k10
 from neopixel import NeoPixel
 from machine import Servo,I2C
-import machine,onewire, struct,task_handler
+import machine,onewire, struct,task_handler,gc
 from ds18x20 import DS18X20
 from hcsr04 import HCSR04
 from dht import DHT11
-
+gc.collect()
 
 '''
 六轴的驱动类
@@ -563,5 +563,11 @@ wifi = WiFi()
 mqttclient = MqttClient()
 acce = accelerometer()
 rgb = rgb_board()
-
 th = task_handler.TaskHandler()
+def unihiker_k10_collect():
+    global tf_card,speaker
+    speaker.deinit()
+    tf_card.deinit()
+    del mic,speaker,tf_card
+    gc.collect()
+    print("unihiker_k10_collect")
